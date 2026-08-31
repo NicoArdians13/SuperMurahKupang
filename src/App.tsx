@@ -1,4 +1,5 @@
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { supabase } from "./lib/supabase";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   ChevronDown,
@@ -20,18 +21,31 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
-type Category = string;
+type Category = {
+  id: number;
+  name: string;
+  image: string;
+};
+
 type Product = {
   id: number;
   name: string;
   category: string;
   image: string;
-  badge?: string;
+  badge?: string | null;
   retail: string;
   wholesale: string;
   superWholesale: string;
-  description?: string;
+  description?: string | null;
 };
+
+type Promotion = {
+  id: number;
+  image_url: string;
+  created_at?: string;
+};
+
+type AdminSection = "catalog" | "promotion" | "categories";
 
 const defaultCategories: { label: string; image: string }[] = [
   {
@@ -56,58 +70,6 @@ const defaultCategories: { label: string; image: string }[] = [
   },
 ];
 
-const initialProducts: Product[] = [
-  {
-    id: 1,
-    name: "Kursi Santai Rotan",
-    category: "Ruang Tamu",
-    retail: "Rp225.000",
-    wholesale: "Rp195.000",
-    superWholesale: "Rp175.000",
-    image:
-      "https://images.unsplash.com/photo-1592078615290-033ee584e267?auto=format&fit=crop&w=900&q=85",
-    badge: "Terlaris",
-    description:
-      "Kursi rotan nyaman untuk ruang tamu, teras, atau sudut santai.",
-  },
-  {
-    id: 2,
-    name: "Set Wadah Dapur Kaca",
-    category: "Dapur",
-    retail: "Rp85.000",
-    wholesale: "Rp75.000",
-    superWholesale: "Rp68.000",
-    image:
-      "https://images.unsplash.com/photo-1556910103-1c02745aae4d?auto=format&fit=crop&w=900&q=85",
-    description:
-      "Wadah kaca praktis untuk menyimpan bahan makanan dan bumbu dapur.",
-  },
-  {
-    id: 3,
-    name: "Keranjang Laundry Anyam",
-    category: "Organisasi",
-    retail: "Rp120.000",
-    wholesale: "Rp105.000",
-    superWholesale: "Rp96.000",
-    image:
-      "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=900&q=85",
-    description:
-      "Keranjang anyam serbaguna untuk laundry dan penyimpanan rumah.",
-  },
-  {
-    id: 4,
-    name: "Rak Samping Minimalis",
-    category: "Kamar",
-    retail: "Rp275.000",
-    wholesale: "Rp245.000",
-    superWholesale: "Rp225.000",
-    image:
-      "https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=900&q=85",
-    description:
-      "Rak minimalis untuk menyimpan barang kecil di kamar atau ruang kerja.",
-  },
-];
-
 const emptyProduct: Omit<Product, "id"> = {
   name: "",
   category: "Dapur",
@@ -115,364 +77,1644 @@ const emptyProduct: Omit<Product, "id"> = {
   wholesale: "",
   superWholesale: "",
   image: "",
+  badge: "",
   description: "",
 };
 
 const priceNumber = (value: string) =>
-  Number(value.replace(/[^0-9]/g, "")) || 0;
-const formatRupiah = (value: number) => `Rp${value.toLocaleString("id-ID")}`;
+  Number(String(value || "").replace(/[^0-9]/g, "")) || 0;
 
-const compressImage = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Gambar tidak dapat dibaca."));
-    reader.onload = () => {
-      const image = new Image();
-      image.onerror = () => reject(new Error("Format gambar tidak didukung."));
-      image.onload = () => {
-        const maxSize = 1600;
-        const scale = Math.min(
-          1,
-          maxSize / Math.max(image.width, image.height),
-        );
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.round(image.width * scale));
-        canvas.height = Math.max(1, Math.round(image.height * scale));
-        canvas
-          .getContext("2d")
-          ?.drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.82));
-      };
-      image.src = String(reader.result);
-    };
-    reader.readAsDataURL(file);
-  });
+const formatRupiah = (value: number) =>
+  `Rp${value.toLocaleString("id-ID")}`;
 
-const saveLocal = (key: string, value: unknown) => {
+const normalizeProduct = (product: any): Product => ({
+  id: Number(product.id),
+  name: String(product.name || ""),
+  category: String(product.category || "Dapur"),
+  image: String(product.image || ""),
+  badge: product.badge ?? "",
+  retail: String(product.retail || ""),
+  wholesale: String(product.wholesale || ""),
+  superWholesale: String(product.super_wholesale || product.superWholesale || ""),
+  description: product.description ?? "",
+});
+
+const normalizeCategory = (category: any): Category => ({
+  id: Number(category.id),
+  name: String(category.name || ""),
+  image: String(category.image || ""),
+});
+
+const normalizePromotion = (promotion: any): Promotion => ({
+  id: Number(promotion.id),
+  image_url: String(promotion.image_url || ""),
+  created_at: promotion.created_at,
+});
+
+const getDefaultCategoryImage = (categoryName: string) => {
+  const found = defaultCategories.find(
+    (item) => item.label === categoryName,
+  );
+
+  return found?.image || defaultCategories[0].image;
+};
+
+/**
+ * Upload file ke Supabase Storage.
+ *
+ * Kita memakai nama file unik supaya tidak terkena masalah
+ * duplicate file / overwrite policy.
+ */
+const uploadToStorage = async (
+  bucket: string,
+  file: File,
+  folder: string,
+) => {
+  const extension =
+    file.name.split(".").pop()?.toLowerCase() || "jpg";
+
+  const fileName = `${folder}/${crypto.randomUUID()}.${extension}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(bucket)
+    .upload(fileName, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type || "image/jpeg",
+    });
+
+  if (uploadError) {
+    console.error("Storage upload error:", uploadError);
+    throw new Error(uploadError.message);
+  }
+
+  const { data } = supabase.storage
+    .from(bucket)
+    .getPublicUrl(fileName);
+
+  if (!data?.publicUrl) {
+    throw new Error("URL gambar tidak berhasil dibuat.");
+  }
+
+  return {
+    path: fileName,
+    publicUrl: data.publicUrl,
+  };
+};
+
+/**
+ * Hapus file lama jika URL-nya berasal dari Supabase Storage.
+ */
+const removeStorageFileByUrl = async (
+  bucket: string,
+  url: string,
+) => {
+  if (!url || !url.includes("/storage/v1/object/public/")) {
+    return;
+  }
+
   try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Keep the current React state usable when browser storage is full.
+    const marker = `/storage/v1/object/public/${bucket}/`;
+
+    const index = url.indexOf(marker);
+
+    if (index === -1) return;
+
+    const path = url.substring(index + marker.length);
+
+    if (!path) return;
+
+    const { error } = await supabase.storage
+      .from(bucket)
+      .remove([decodeURIComponent(path)]);
+
+    if (error) {
+      console.warn(
+        "File lama tidak berhasil dihapus:",
+        error.message,
+      );
+    }
+  } catch (error) {
+    console.warn("Gagal menghapus file lama:", error);
   }
 };
 
 function App() {
-  const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem("super-murah-products");
-    return saved ? JSON.parse(saved) : initialProducts;
-  });
-  const [categories, setCategories] = useState<string[]>(() => {
-    const saved = localStorage.getItem("super-murah-categories");
-    return saved
-      ? JSON.parse(saved)
-      : defaultCategories.map((category) => category.label);
-  });
-  const [categoryImages, setCategoryImages] = useState<Record<string, string>>(
-    () => {
-      const saved = localStorage.getItem("super-murah-category-images");
-      if (saved) return JSON.parse(saved);
-      return Object.fromEntries(
-        defaultCategories.map((category) => [category.label, category.image]),
-      );
-    },
-  );
-  const storeLogo = "/supermurahkupang.png";
-  const [promotionImage, setPromotionImage] = useState(
-    () => localStorage.getItem("super-murah-promotion") || "",
-  );
-  const [lowerPromotionImage, setLowerPromotionImage] = useState(
-    () => localStorage.getItem("super-murah-lower-promotion") || "",
-  );
-  const [activeCategory, setActiveCategory] = useState<Category>("Semua");
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+
+  const [activeCategory, setActiveCategory] =
+    useState<string>("Semua");
+
   const [menuOpen, setMenuOpen] = useState(false);
+
   const [adminOpen, setAdminOpen] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(
-    () => sessionStorage.getItem("super-murah-admin") === "true",
-  );
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  const [login, setLogin] = useState({
+    email: "",
+    password: "",
+  });
+
   const [loginError, setLoginError] = useState("");
-  const [login, setLogin] = useState({ username: "", password: "" });
+  const [loginLoading, setLoginLoading] = useState(false);
+
   const [editing, setEditing] = useState<Product | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+
   const [categoryName, setCategoryName] = useState("");
+
   const [adminSearch, setAdminSearch] = useState("");
   const [publicSearch, setPublicSearch] = useState("");
-  const [publicPage, setPublicPage] = useState(1);
-  const [adminSection, setAdminSection] = useState<
-    "catalog" | "promotion" | "categories"
-  >("catalog");
-  const [cart, setCart] = useState<Record<number, number>>({});
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [form, setForm] = useState<Omit<Product, "id">>(emptyProduct);
 
-  useEffect(() => saveLocal("super-murah-products", products), [products]);
-  useEffect(
-    () => saveLocal("super-murah-category-images", categoryImages),
-    [categoryImages],
-  );
+  const [publicPage, setPublicPage] = useState(1);
+
+  const [adminSection, setAdminSection] =
+    useState<AdminSection>("catalog");
+
+  const [cart, setCart] =
+    useState<Record<number, number>>({});
+
+  const [selectedProduct, setSelectedProduct] =
+    useState<Product | null>(null);
+
+  const [form, setForm] =
+    useState<Omit<Product, "id">>(emptyProduct);
+
+  const [uploadingProductImage, setUploadingProductImage] =
+    useState(false);
+
+  const [uploadingCategoryImage, setUploadingCategoryImage] =
+    useState<number | null>(null);
+
+  const [uploadingPromotion, setUploadingPromotion] =
+    useState<number | null>(null);
+
+  const [savingProduct, setSavingProduct] =
+    useState(false);
+
+  const [savingCategory, setSavingCategory] =
+    useState(false);
+
+  const storeLogo = "/supermurahkupang.png";
+
+  /**
+   * ---------------------------------------------------------
+   * AUTHENTICATION
+   * ---------------------------------------------------------
+   */
+
+  const checkAdmin = async () => {
+    setCheckingAuth(true);
+
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        setIsAdmin(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("admin_users")
+        .select("id, role")
+        .eq("id", user.id)
+        .eq("role", "admin")
+        .maybeSingle();
+
+      if (error) {
+        console.error("Gagal memeriksa admin:", error);
+        setIsAdmin(false);
+        return;
+      }
+
+      setIsAdmin(Boolean(data));
+    } catch (error) {
+      console.error("Auth check error:", error);
+      setIsAdmin(false);
+    } finally {
+      setCheckingAuth(false);
+    }
+  };
+
   useEffect(() => {
-    if (promotionImage) saveLocal("super-murah-promotion", promotionImage);
-    else localStorage.removeItem("super-murah-promotion");
-  }, [promotionImage]);
+    checkAdmin();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      checkAdmin();
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const submitLogin = async (event: FormEvent) => {
+    event.preventDefault();
+
+    setLoginError("");
+
+    if (!login.email.trim() || !login.password) {
+      setLoginError(
+        "Email dan password wajib diisi.",
+      );
+      return;
+    }
+
+    setLoginLoading(true);
+
+    try {
+      const { data, error } =
+        await supabase.auth.signInWithPassword({
+          email: login.email.trim(),
+          password: login.password,
+        });
+
+      if (error) {
+        console.error("Login error:", error);
+
+        setLoginError(
+          "Email atau password tidak sesuai.",
+        );
+
+        return;
+      }
+
+      if (!data.user) {
+        setLoginError(
+          "Login gagal. User tidak ditemukan.",
+        );
+        return;
+      }
+
+      /**
+       * Login Auth berhasil.
+       * Sekarang cek apakah user ini benar-benar admin.
+       */
+      const { data: adminData, error: adminError } =
+        await supabase
+          .from("admin_users")
+          .select("id, role")
+          .eq("id", data.user.id)
+          .eq("role", "admin")
+          .maybeSingle();
+
+      if (adminError || !adminData) {
+        await supabase.auth.signOut();
+
+        setLoginError(
+          "Akun berhasil login, tetapi tidak memiliki akses admin.",
+        );
+
+        setIsAdmin(false);
+
+        return;
+      }
+
+      setIsAdmin(true);
+      setLoginError("");
+      setAdminOpen(true);
+      setLogin({
+        email: "",
+        password: "",
+      });
+    } catch (error) {
+      console.error(error);
+
+      setLoginError(
+        "Terjadi kesalahan saat login. Silakan coba lagi.",
+      );
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+
+    setIsAdmin(false);
+    setAdminOpen(false);
+    setEditorOpen(false);
+    setEditing(null);
+  };
+
+  /**
+   * ---------------------------------------------------------
+   * LOAD PRODUCTS
+   * ---------------------------------------------------------
+   */
+
+  const loadProducts = async () => {
+    const { data, error } = await supabase
+      .from("products")
+      .select("*")
+      .order("id", { ascending: true });
+
+    if (error) {
+      console.error(
+        "Gagal mengambil produk:",
+        error,
+      );
+      return;
+    }
+
+    setProducts(
+      (data || []).map(normalizeProduct),
+    );
+  };
+
+  /**
+   * ---------------------------------------------------------
+   * LOAD CATEGORIES
+   * ---------------------------------------------------------
+   */
+
+  const loadCategories = async () => {
+    const { data, error } = await supabase
+      .from("categories")
+      .select("*")
+      .order("id", { ascending: true });
+
+    if (error) {
+      console.error(
+        "Gagal mengambil kategori:",
+        error,
+      );
+      return;
+    }
+
+    setCategories(
+      (data || []).map(normalizeCategory),
+    );
+  };
+
+  /**
+   * ---------------------------------------------------------
+   * LOAD PROMOTIONS
+   *
+   * ID 1 = gambar hero
+   * ID 2 = gambar promosi bawah
+   * ---------------------------------------------------------
+   */
+
+  const loadPromotions = async () => {
+    const { data, error } = await supabase
+      .from("promotions")
+      .select("*")
+      .order("id", { ascending: true });
+
+    if (error) {
+      console.error(
+        "Gagal mengambil promosi:",
+        error,
+      );
+      return;
+    }
+
+    setPromotions(
+      (data || []).map(normalizePromotion),
+    );
+  };
+
   useEffect(() => {
-    if (lowerPromotionImage)
-      saveLocal("super-murah-lower-promotion", lowerPromotionImage);
-    else localStorage.removeItem("super-murah-lower-promotion");
-  }, [lowerPromotionImage]);
-  useEffect(
-    () => saveLocal("super-murah-categories", categories),
+    loadProducts();
+    loadCategories();
+    loadPromotions();
+  }, []);
+
+  /**
+   * ---------------------------------------------------------
+   * REALTIME REFRESH
+   * ---------------------------------------------------------
+   */
+
+  useEffect(() => {
+    const productsChannel = supabase
+      .channel("products-live")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "products",
+        },
+        () => {
+          loadProducts();
+        },
+      )
+      .subscribe();
+
+    const categoriesChannel = supabase
+      .channel("categories-live")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "categories",
+        },
+        () => {
+          loadCategories();
+        },
+      )
+      .subscribe();
+
+    const promotionsChannel = supabase
+      .channel("promotions-live")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "promotions",
+        },
+        () => {
+          loadPromotions();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(productsChannel);
+      supabase.removeChannel(categoriesChannel);
+      supabase.removeChannel(promotionsChannel);
+    };
+  }, []);
+
+  /**
+   * ---------------------------------------------------------
+   * PROMOTION HELPER
+   * ---------------------------------------------------------
+   */
+
+  const heroPromotion =
+    promotions.find((item) => item.id === 1)
+      ?.image_url || "";
+
+  const lowerPromotion =
+    promotions.find((item) => item.id === 2)
+      ?.image_url || "";
+
+  /**
+   * ---------------------------------------------------------
+   * CATEGORY
+   * ---------------------------------------------------------
+   */
+
+  const categoryNames = useMemo(
+    () => categories.map((category) => category.name),
     [categories],
   );
-  useEffect(() => {
-    const syncStorefront = (event: StorageEvent) => {
-      if (event.key === "super-murah-promotion")
-        setPromotionImage(event.newValue || "");
-      if (event.key === "super-murah-lower-promotion")
-        setLowerPromotionImage(event.newValue || "");
-      if (event.key === "super-murah-category-images")
-        setCategoryImages(event.newValue ? JSON.parse(event.newValue) : {});
-      if (event.key === "super-murah-categories")
-        setCategories(event.newValue ? JSON.parse(event.newValue) : []);
-      if (event.key === "super-murah-products")
-        setProducts(event.newValue ? JSON.parse(event.newValue) : []);
-    };
-    window.addEventListener("storage", syncStorefront);
-    return () => window.removeEventListener("storage", syncStorefront);
-  }, []);
+
+  /**
+   * ---------------------------------------------------------
+   * FILTER PRODUCTS
+   * ---------------------------------------------------------
+   */
+
   const filteredProducts =
     activeCategory === "Semua"
       ? products
-      : products.filter((product) => product.category === activeCategory);
-  const publicFilteredProducts = filteredProducts.filter((product) =>
-    publicSearch.trim().length < 2
-      ? true
-      : `${product.name} ${product.category}`
-        .toLowerCase()
-        .includes(publicSearch.trim().toLowerCase()),
-  );
+      : products.filter(
+          (product) =>
+            product.category === activeCategory,
+        );
+
+  const publicFilteredProducts =
+    filteredProducts.filter((product) =>
+      publicSearch.trim().length < 2
+        ? true
+        : `${product.name} ${product.category}`
+            .toLowerCase()
+            .includes(
+              publicSearch.trim().toLowerCase(),
+            ),
+    );
+
   const productsPerPage = 12;
+
   const totalPublicPages = Math.max(
     1,
-    Math.ceil(publicFilteredProducts.length / productsPerPage),
+    Math.ceil(
+      publicFilteredProducts.length /
+        productsPerPage,
+    ),
   );
+
   const pageWindowStart =
     publicPage <= 10
       ? 1
       : publicPage % 10 === 0
         ? publicPage
-        : Math.floor((publicPage - 1) / 10) * 10 + 1;
-  const pageWindowEnd = Math.min(totalPublicPages, pageWindowStart + 9);
+        : Math.floor(
+            (publicPage - 1) / 10,
+          ) *
+            10 +
+          1;
+
+  const pageWindowEnd = Math.min(
+    totalPublicPages,
+    pageWindowStart + 9,
+  );
+
   const visiblePageNumbers = Array.from(
-    { length: pageWindowEnd - pageWindowStart + 1 },
-    (_, index) => pageWindowStart + index,
+    {
+      length:
+        pageWindowEnd -
+        pageWindowStart +
+        1,
+    },
+    (_, index) =>
+      pageWindowStart + index,
   );
-  const visibleProducts = publicFilteredProducts.slice(
-    (publicPage - 1) * productsPerPage,
-    publicPage * productsPerPage,
-  );
+
+  const visibleProducts =
+    publicFilteredProducts.slice(
+      (publicPage - 1) * productsPerPage,
+      publicPage * productsPerPage,
+    );
+
   const adminFilteredProducts =
     adminSearch.trim().length < 2
       ? products
       : products.filter((product) =>
-        `${product.name} ${product.category}`
-          .toLowerCase()
-          .includes(adminSearch.trim().toLowerCase()),
-      );
-  useEffect(() => setPublicPage(1), [activeCategory, publicSearch]);
-  const cartItems = products.filter((product) => (cart[product.id] || 0) > 0);
-  const totalQuantity = Object.values(cart).reduce(
-    (total, quantity) => total + quantity,
+          `${product.name} ${product.category}`
+            .toLowerCase()
+            .includes(
+              adminSearch
+                .trim()
+                .toLowerCase(),
+            ),
+        );
+
+  useEffect(() => {
+    setPublicPage(1);
+  }, [activeCategory, publicSearch]);
+
+  /**
+   * ---------------------------------------------------------
+   * CART
+   * ---------------------------------------------------------
+   */
+
+  const cartItems = products.filter(
+    (product) =>
+      (cart[product.id] || 0) > 0,
+  );
+
+  const totalQuantity = Object.values(
+    cart,
+  ).reduce(
+    (total, quantity) =>
+      total + quantity,
     0,
   );
+
   const getPrice = (
     product: Product,
     quantity: number,
-    orderQuantity = quantity,
   ) =>
-    orderQuantity >= 36
+    quantity >= 36
       ? priceNumber(product.superWholesale)
-      : orderQuantity >= 6
+      : quantity >= 6
         ? priceNumber(product.wholesale)
         : priceNumber(product.retail);
-  const addToCart = (product: Product) =>
+
+  const addToCart = (
+    product: Product,
+  ) =>
     setCart((items) => ({
       ...items,
-      [product.id]: (items[product.id] || 0) + 1,
+      [product.id]:
+        (items[product.id] || 0) + 1,
     }));
-  const changeCartQuantity = (id: number, quantity: number) =>
+
+  const changeCartQuantity = (
+    id: number,
+    quantity: number,
+  ) =>
     setCart((items) => {
       const next = { ...items };
-      if (quantity <= 0) delete next[id];
-      else next[id] = quantity;
+
+      if (quantity <= 0) {
+        delete next[id];
+      } else {
+        next[id] = quantity;
+      }
+
       return next;
     });
+
+  /**
+   * ---------------------------------------------------------
+   * WHATSAPP
+   * ---------------------------------------------------------
+   */
+
   const whatsapp = () =>
     window.open(
       "https://wa.me/6285755463065?text=Halo%20SUPER%20MURAH%20KUPANG%2C%20saya%20ingin%20bertanya%20tentang%20produk.",
       "_blank",
     );
+
   const checkout = () => {
     if (!cartItems.length) return;
-    const lines = cartItems.map((product) => {
-      const quantity = cart[product.id];
-      return `- ${product.name} (${quantity} pcs) x ${formatRupiah(getPrice(product, quantity, totalQuantity))} = ${formatRupiah(getPrice(product, quantity, totalQuantity) * quantity)}`;
-    });
-    const total = cartItems.reduce(
-      (sum, product) =>
-        sum +
-        getPrice(product, cart[product.id], totalQuantity) * cart[product.id],
-      0,
+
+    const lines = cartItems.map(
+      (product) => {
+        const quantity =
+          cart[product.id];
+
+        const unitPrice = getPrice(
+          product,
+          quantity,
+        );
+
+        return `- ${product.name} (${quantity} pcs) x ${formatRupiah(unitPrice)} = ${formatRupiah(unitPrice * quantity)}`;
+      },
     );
+
+    const total =
+      cartItems.reduce(
+        (sum, product) =>
+          sum +
+          getPrice(
+            product,
+            cart[product.id],
+          ) *
+            cart[product.id],
+        0,
+      );
+
     const tier =
-      totalQuantity >= 36
-        ? "Super Grosir"
-        : totalQuantity >= 6
-          ? "Grosir"
-          : "Ecer";
-    const message = `Halo SUPER MURAH KUPANG, saya ingin checkout:\n\n${lines.join("\n")}\n\nTotal barang: ${totalQuantity} pcs\nKategori harga: ${tier}\nTotal belanja: ${formatRupiah(total)}\n\nNama pemesan: `;
+      cartItems.some(
+        (product) =>
+          (cart[product.id] || 0) >= 36,
+      )
+        ? "Harga dihitung per produk (ada produk super grosir)"
+        : cartItems.some(
+              (product) =>
+                (cart[product.id] || 0) >= 6,
+            )
+          ? "Harga dihitung per produk (ada produk grosir)"
+          : "Harga ecer";
+
+    const message =
+      `Halo SUPER MURAH KUPANG, saya ingin checkout:\n\n` +
+      `${lines.join("\n")}\n\n` +
+      `Total barang: ${totalQuantity} pcs\n` +
+      `Kategori harga: ${tier}\n` +
+      `Total belanja: ${formatRupiah(total)}\n\n` +
+      `Nama pemesan: `;
+
     window.open(
-      `https://wa.me/6285755463065?text=${encodeURIComponent(message)}`,
+      `https://wa.me/6285755463065?text=${encodeURIComponent(
+        message,
+      )}`,
       "_blank",
     );
   };
-  const updateLogin = (event: ChangeEvent<HTMLInputElement>) =>
-    setLogin({ ...login, [event.target.name]: event.target.value });
-  const submitLogin = (event: FormEvent) => {
-    event.preventDefault();
-    if (login.username === "Jinbee123" && login.password === "RTZKing545601") {
-      sessionStorage.setItem("super-murah-admin", "true");
-      setIsAdmin(true);
-      setLoginError("");
-    } else setLoginError("Username atau password belum sesuai.");
-  };
-  const openEditor = (product?: Product) => {
+
+  /**
+   * ---------------------------------------------------------
+   * PRODUCT EDITOR
+   * ---------------------------------------------------------
+   */
+
+  const openEditor = (
+    product?: Product,
+  ) => {
     setEditing(product ?? null);
-    setForm(product ? { ...product } : emptyProduct);
+
+    setForm(
+      product
+        ? {
+            name: product.name,
+            category:
+              product.category ||
+              categoryNames[0] ||
+              "Dapur",
+            retail: product.retail,
+            wholesale:
+              product.wholesale,
+            superWholesale:
+              product.superWholesale,
+            image: product.image,
+            badge: product.badge || "",
+            description:
+              product.description || "",
+          }
+        : {
+            ...emptyProduct,
+            category:
+              categoryNames[0] ||
+              "Dapur",
+          },
+    );
+
     setEditorOpen(true);
   };
+
   const closeEditor = () => {
     setEditing(null);
-    setForm(emptyProduct);
+    setForm({
+      ...emptyProduct,
+      category:
+        categoryNames[0] ||
+        "Dapur",
+    });
     setEditorOpen(false);
   };
-  const saveProduct = (event: FormEvent) => {
-    event.preventDefault();
-    if (!form.name || !form.image) return;
-    if (editing)
-      setProducts(
-        products.map((product) =>
-          product.id === editing.id ? { ...form, id: editing.id } : product,
-        ),
+
+  /**
+   * ---------------------------------------------------------
+   * UPLOAD PRODUCT IMAGE
+   * ---------------------------------------------------------
+   */
+
+  const uploadProductImage = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file =
+      event.target.files?.[0];
+
+    event.target.value = "";
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      alert(
+        "File yang dipilih bukan gambar.",
       );
-    else setProducts([...products, { ...form, id: Date.now() }]);
-    closeEditor();
+      return;
+    }
+
+    setUploadingProductImage(true);
+
+    try {
+      const result =
+        await uploadToStorage(
+          "product-images",
+          file,
+          "products",
+        );
+
+      setForm((current) => ({
+        ...current,
+        image: result.publicUrl,
+      }));
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        `Gambar produk gagal diupload.\n\n${
+          error instanceof Error
+            ? error.message
+            : "Periksa policy Storage Supabase."
+        }`,
+      );
+    } finally {
+      setUploadingProductImage(false);
+    }
   };
-  const removeProduct = (id: number) =>
-    setProducts(products.filter((product) => product.id !== id));
-  const removeEditingProduct = () => {
-    if (!editing) return;
-    if (window.confirm(`Hapus produk "${editing.name}" dari katalog?`)) {
-      removeProduct(editing.id);
+
+  /**
+   * ---------------------------------------------------------
+   * SAVE PRODUCT
+   * ---------------------------------------------------------
+   */
+
+  const saveProduct = async (
+    event: FormEvent,
+  ) => {
+    event.preventDefault();
+
+    if (!form.name.trim()) {
+      alert("Nama produk wajib diisi.");
+      return;
+    }
+
+    if (!form.image) {
+      alert(
+        "Gambar produk wajib diupload.",
+      );
+      return;
+    }
+
+    if (!form.category) {
+      alert(
+        "Kategori produk wajib dipilih.",
+      );
+      return;
+    }
+
+    setSavingProduct(true);
+
+    try {
+      if (editing) {
+        const oldImage =
+          editing.image;
+
+        const { error } =
+          await supabase
+            .from("products")
+            .update({
+              name: form.name.trim(),
+              category: form.category,
+              retail: form.retail,
+              wholesale:
+                form.wholesale,
+              super_wholesale:
+                form.superWholesale,
+              image: form.image,
+              badge:
+                form.badge?.trim() ||
+                null,
+              description:
+                form.description?.trim() ||
+                null,
+            })
+            .eq("id", editing.id);
+
+        if (error) {
+          console.error(error);
+
+          alert(
+            `Produk gagal disimpan.\n\n${error.message}`,
+          );
+
+          return;
+        }
+
+        /**
+         * Hapus gambar lama setelah database berhasil di-update.
+         */
+        if (
+          oldImage &&
+          oldImage !== form.image
+        ) {
+          await removeStorageFileByUrl(
+            "product-images",
+            oldImage,
+          );
+        }
+      } else {
+        const { error } =
+          await supabase
+            .from("products")
+            .insert({
+              name: form.name.trim(),
+              category: form.category,
+              retail: form.retail,
+              wholesale:
+                form.wholesale,
+              super_wholesale:
+                form.superWholesale,
+              image: form.image,
+              badge:
+                form.badge?.trim() ||
+                null,
+              description:
+                form.description?.trim() ||
+                null,
+            });
+
+        if (error) {
+          console.error(error);
+
+          alert(
+            `Produk gagal ditambahkan.\n\n${error.message}`,
+          );
+
+          return;
+        }
+      }
+
+      await loadProducts();
+      closeEditor();
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        "Terjadi kesalahan saat menyimpan produk.",
+      );
+    } finally {
+      setSavingProduct(false);
+    }
+  };
+
+  /**
+   * ---------------------------------------------------------
+   * DELETE PRODUCT
+   * ---------------------------------------------------------
+   */
+
+  const removeProduct = async (
+    product: Product,
+  ) => {
+    if (
+      !window.confirm(
+        `Hapus produk "${product.name}" dari katalog?`,
+      )
+    ) {
+      return;
+    }
+
+    const { error } =
+      await supabase
+        .from("products")
+        .delete()
+        .eq("id", product.id);
+
+    if (error) {
+      console.error(error);
+
+      alert(
+        `Produk gagal dihapus.\n\n${error.message}`,
+      );
+
+      return;
+    }
+
+    if (product.image) {
+      await removeStorageFileByUrl(
+        "product-images",
+        product.image,
+      );
+    }
+
+    await loadProducts();
+
+    setCart((current) => {
+      const next = {
+        ...current,
+      };
+
+      delete next[product.id];
+
+      return next;
+    });
+
+    if (
+      editing?.id === product.id
+    ) {
       closeEditor();
     }
   };
-  const addCategory = (event: FormEvent) => {
+
+  /**
+   * ---------------------------------------------------------
+   * CATEGORY
+   * ---------------------------------------------------------
+   */
+
+  const addCategory = async (
+    event: FormEvent,
+  ) => {
     event.preventDefault();
-    const name = categoryName.trim();
-    if (name && !categories.includes(name))
-      setCategories([...categories, name]);
-    setCategoryName("");
+
+    const name =
+      categoryName.trim();
+
+    if (!name) return;
+
+    const alreadyExists =
+      categories.some(
+        (category) =>
+          category.name.toLowerCase() ===
+          name.toLowerCase(),
+      );
+
+    if (alreadyExists) {
+      alert(
+        "Kategori tersebut sudah ada.",
+      );
+      return;
+    }
+
+    setSavingCategory(true);
+
+    try {
+      const { error } =
+        await supabase
+          .from("categories")
+          .insert({
+            name,
+            image:
+              getDefaultCategoryImage(
+                name,
+              ),
+          });
+
+      if (error) {
+        console.error(error);
+
+        alert(
+          `Kategori gagal ditambahkan.\n\n${error.message}`,
+        );
+
+        return;
+      }
+
+      setCategoryName("");
+      await loadCategories();
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        "Terjadi kesalahan saat menambahkan kategori.",
+      );
+    } finally {
+      setSavingCategory(false);
+    }
   };
-  const removeCategory = (name: string) => {
-    if (products.some((product) => product.category === name)) return;
-    setCategories(categories.filter((category) => category !== name));
-    setCategoryImages((images) => {
-      const nextImages = { ...images };
-      delete nextImages[name];
-      return nextImages;
-    });
+
+  const removeCategory = async (
+    category: Category,
+  ) => {
+    const usedByProduct =
+      products.some(
+        (product) =>
+          product.category ===
+          category.name,
+      );
+
+    if (usedByProduct) {
+      alert(
+        "Kategori tidak dapat dihapus karena masih digunakan oleh produk.",
+      );
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Hapus kategori "${category.name}"?`,
+      )
+    ) {
+      return;
+    }
+
+    const { error } =
+      await supabase
+        .from("categories")
+        .delete()
+        .eq("id", category.id);
+
+    if (error) {
+      console.error(error);
+
+      alert(
+        `Kategori gagal dihapus.\n\n${error.message}`,
+      );
+
+      return;
+    }
+
+    if (category.image) {
+      await removeStorageFileByUrl(
+        "category-images",
+        category.image,
+      );
+    }
+
+    await loadCategories();
+
+    if (
+      activeCategory ===
+      category.name
+    ) {
+      setActiveCategory("Semua");
+    }
   };
-  const changeProductCategory = (id: number, category: string) =>
-    setProducts(
-      products.map((product) =>
-        product.id === id ? { ...product, category } : product,
-      ),
-    );
-  const uploadCategoryImage = (
-    category: string,
+
+  /**
+   * ---------------------------------------------------------
+   * CATEGORY IMAGE
+   * ---------------------------------------------------------
+   */
+
+  const uploadCategoryImage = async (
+    category: Category,
     event: ChangeEvent<HTMLInputElement>,
   ) => {
-    const file = event.target.files?.[0];
+    const file =
+      event.target.files?.[0];
+
+    event.target.value = "";
+
     if (!file) return;
-    compressImage(file).then((image) =>
-      setCategoryImages((images) => ({ ...images, [category]: image })),
-    );
-  };
-  const removeCategoryImage = (category: string) => {
-    setCategoryImages((images) => {
-      const nextImages = { ...images };
-      delete nextImages[category];
-      return nextImages;
-    });
-  };
-  const uploadPromotionImage = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    compressImage(file).then(setPromotionImage);
-  };
-  const uploadLowerPromotionImage = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    compressImage(file).then(setLowerPromotionImage);
-  };
-  const importExcel = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (loadEvent) => {
-      const workbook = XLSX.read(loadEvent.target?.result, { type: "array" });
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(
-        workbook.Sheets[workbook.SheetNames[0]],
+
+    if (!file.type.startsWith("image/")) {
+      alert(
+        "File yang dipilih bukan gambar.",
       );
-      const imported = rows
-        .map((row, index) => {
-          const values = Object.fromEntries(
-            Object.entries(row).map(([key, value]) => [
-              key.toLowerCase().replace(/[\s_-]/g, ""),
-              value,
-            ]),
-          );
-          const category = String(values.kategori || "Dapur");
-          return {
-            id: Date.now() + index,
-            name: String(values.namabarang || values.nama || ""),
-            category,
-            retail: String(values.hargaecer || values.ecer || ""),
-            wholesale: String(values.hargagrosir || values.grosir || ""),
-            superWholesale: String(
-              values.hargasupergrosir || values.supergrosir || "",
-            ),
-            image: String(values.gambar || values.image || ""),
-          };
+      return;
+    }
+
+    setUploadingCategoryImage(
+      category.id,
+    );
+
+    try {
+      const result =
+        await uploadToStorage(
+          "category-images",
+          file,
+          `categories/${category.id}`,
+        );
+
+      const oldImage =
+        category.image;
+
+      const { error } =
+        await supabase
+          .from("categories")
+          .update({
+            image: result.publicUrl,
+          })
+          .eq("id", category.id);
+
+      if (error) {
+        console.error(error);
+
+        /**
+         * Kalau database gagal, hapus file baru
+         * supaya tidak menjadi file sampah.
+         */
+        await removeStorageFileByUrl(
+          "category-images",
+          result.publicUrl,
+        );
+
+        alert(
+          `Gambar kategori gagal disimpan.\n\n${error.message}`,
+        );
+
+        return;
+      }
+
+      if (
+        oldImage &&
+        oldImage !== result.publicUrl
+      ) {
+        await removeStorageFileByUrl(
+          "category-images",
+          oldImage,
+        );
+      }
+
+      await loadCategories();
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        `Gambar kategori gagal diupload.\n\n${
+          error instanceof Error
+            ? error.message
+            : "Periksa policy Storage Supabase."
+        }`,
+      );
+    } finally {
+      setUploadingCategoryImage(
+        null,
+      );
+    }
+  };
+
+  const removeCategoryImage = async (
+    category: Category,
+  ) => {
+    const defaultImage =
+      getDefaultCategoryImage(
+        category.name,
+      );
+
+    const { error } =
+      await supabase
+        .from("categories")
+        .update({
+          image: defaultImage,
         })
-        .filter((product) => product.name);
-      setProducts([...products, ...imported]);
-      setCategories([
-        ...new Set([
-          ...categories,
-          ...imported.map((product) => product.category),
-        ]),
-      ]);
-      event.target.value = "";
+        .eq("id", category.id);
+
+    if (error) {
+      console.error(error);
+
+      alert(
+        `Gambar kategori gagal dihapus.\n\n${error.message}`,
+      );
+
+      return;
+    }
+
+    if (
+      category.image &&
+      category.image !== defaultImage
+    ) {
+      await removeStorageFileByUrl(
+        "category-images",
+        category.image,
+      );
+    }
+
+    await loadCategories();
+  };
+
+  /**
+   * ---------------------------------------------------------
+   * PROMOTION IMAGE
+   *
+   * ID 1 = hero
+   * ID 2 = bagian bawah
+   * ---------------------------------------------------------
+   */
+
+  const uploadPromotionImage = async (
+    promotionId: number,
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file =
+      event.target.files?.[0];
+
+    event.target.value = "";
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      alert(
+        "File yang dipilih bukan gambar.",
+      );
+      return;
+    }
+
+    setUploadingPromotion(
+      promotionId,
+    );
+
+    try {
+      const result =
+        await uploadToStorage(
+          "promotion-images",
+          file,
+          promotionId === 1
+            ? "hero"
+            : "lower",
+        );
+
+      const oldPromotion =
+        promotions.find(
+          (item) =>
+            item.id === promotionId,
+        );
+
+      if (oldPromotion) {
+        const { error } =
+          await supabase
+            .from("promotions")
+            .update({
+              image_url:
+                result.publicUrl,
+            })
+            .eq(
+              "id",
+              promotionId,
+            );
+
+        if (error) {
+          console.error(error);
+
+          await removeStorageFileByUrl(
+            "promotion-images",
+            result.publicUrl,
+          );
+
+          alert(
+            `Gambar promosi gagal disimpan.\n\n${error.message}`,
+          );
+
+          return;
+        }
+
+        if (
+          oldPromotion.image_url &&
+          oldPromotion.image_url !==
+            result.publicUrl
+        ) {
+          await removeStorageFileByUrl(
+            "promotion-images",
+            oldPromotion.image_url,
+          );
+        }
+      } else {
+        const { error } =
+          await supabase
+            .from("promotions")
+            .insert({
+              id: promotionId,
+              image_url:
+                result.publicUrl,
+            });
+
+        if (error) {
+          console.error(error);
+
+          await removeStorageFileByUrl(
+            "promotion-images",
+            result.publicUrl,
+          );
+
+          alert(
+            `Gambar promosi gagal disimpan.\n\n${error.message}`,
+          );
+
+          return;
+        }
+      }
+
+      await loadPromotions();
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        `Gambar promosi gagal diupload.\n\n${
+          error instanceof Error
+            ? error.message
+            : "Periksa policy Storage Supabase."
+        }`,
+      );
+    } finally {
+      setUploadingPromotion(
+        null,
+      );
+    }
+  };
+
+  const removePromotionImage = async (
+    promotionId: number,
+  ) => {
+    const promotion =
+      promotions.find(
+        (item) =>
+          item.id === promotionId,
+      );
+
+    if (!promotion) return;
+
+    if (
+      !window.confirm(
+        "Hapus gambar promosi ini?",
+      )
+    ) {
+      return;
+    }
+
+    const { error } =
+      await supabase
+        .from("promotions")
+        .delete()
+        .eq("id", promotionId);
+
+    if (error) {
+      console.error(error);
+
+      alert(
+        `Gambar promosi gagal dihapus.\n\n${error.message}`,
+      );
+
+      return;
+    }
+
+    if (promotion.image_url) {
+      await removeStorageFileByUrl(
+        "promotion-images",
+        promotion.image_url,
+      );
+    }
+
+    await loadPromotions();
+  };
+
+  /**
+   * ---------------------------------------------------------
+   * IMPORT EXCEL
+   * ---------------------------------------------------------
+   */
+
+  const importExcel = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file =
+      event.target.files?.[0];
+
+    event.target.value = "";
+
+    if (!file) return;
+
+    const reader =
+      new FileReader();
+
+    reader.onload = async (
+      loadEvent,
+    ) => {
+      try {
+        const workbook =
+          XLSX.read(
+            loadEvent.target?.result,
+            {
+              type: "array",
+            },
+          );
+
+        const firstSheet =
+          workbook.Sheets[
+            workbook.SheetNames[0]
+          ];
+
+        const rows =
+          XLSX.utils.sheet_to_json<
+            Record<string, unknown>
+          >(firstSheet);
+
+        const imported = rows
+          .map((row) => {
+            const values =
+              Object.fromEntries(
+                Object.entries(row).map(
+                  ([key, value]) => [
+                    key
+                      .toLowerCase()
+                      .replace(
+                        /[\s_-]/g,
+                        "",
+                      ),
+                    value,
+                  ],
+                ),
+              );
+
+            return {
+              name: String(
+                values.namabarang ||
+                  values.nama ||
+                  "",
+              ).trim(),
+
+              category: String(
+                values.kategori ||
+                  "Dapur",
+              ).trim(),
+
+              retail: String(
+                values.hargaecer ||
+                  values.ecer ||
+                  "",
+              ),
+
+              wholesale: String(
+                values.hargagrosir ||
+                  values.grosir ||
+                  "",
+              ),
+
+              super_wholesale: String(
+                values.hargasupergrosir ||
+                  values.supergrosir ||
+                  "",
+              ),
+
+              image: String(
+                values.gambar ||
+                  values.image ||
+                  "",
+              ),
+
+              badge: String(
+                values.badge ||
+                  "",
+              ),
+
+              description: String(
+                values.deskripsi ||
+                  values.description ||
+                  "",
+              ),
+            };
+          })
+          .filter(
+            (product) =>
+              product.name,
+          );
+
+        if (!imported.length) {
+          alert(
+            "Tidak ada produk valid yang ditemukan di Excel.",
+          );
+          return;
+        }
+
+        const { error } =
+          await supabase
+            .from("products")
+            .insert(imported);
+
+        if (error) {
+          console.error(error);
+
+          alert(
+            `Import Excel gagal.\n\n${error.message}`,
+          );
+
+          return;
+        }
+
+        /**
+         * Tambahkan kategori yang belum ada.
+         */
+        const existingNames =
+          new Set(
+            categories.map(
+              (category) =>
+                category.name.toLowerCase(),
+            ),
+          );
+
+        const newCategories =
+          Array.from(
+            new Set(
+              imported.map(
+                (product) =>
+                  product.category,
+              ),
+            ),
+          ).filter(
+            (name) =>
+              !existingNames.has(
+                name.toLowerCase(),
+              ),
+          );
+
+        if (newCategories.length) {
+          await supabase
+            .from("categories")
+            .insert(
+              newCategories.map(
+                (name) => ({
+                  name,
+                  image:
+                    getDefaultCategoryImage(
+                      name,
+                    ),
+                }),
+              ),
+            );
+        }
+
+        await loadProducts();
+        await loadCategories();
+
+        alert(
+          `${imported.length} produk berhasil diimport.`,
+        );
+      } catch (error) {
+        console.error(error);
+
+        alert(
+          "File Excel tidak dapat diproses.",
+        );
+      }
     };
+
     reader.readAsArrayBuffer(file);
   };
-  const uploadImage = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setForm({ ...form, image: String(reader.result) });
-    reader.readAsDataURL(file);
+
+  /**
+   * ---------------------------------------------------------
+   * LOGIN INPUT
+   * ---------------------------------------------------------
+   */
+
+  const updateLogin = (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    setLogin((current) => ({
+      ...current,
+      [event.target.name]:
+        event.target.value,
+    }));
   };
+
+  /**
+   * ---------------------------------------------------------
+   * RENDER
+   * ---------------------------------------------------------
+   */
 
   return (
     <main>
@@ -480,66 +1722,144 @@ function App() {
         Pusat grosir perabot rumah tangga terpercaya di Kupang{" "}
         <ArrowRight size={15} />
       </div>
+
+      {/* =====================================================
+          NAVBAR
+      ====================================================== */}
+
       <nav className="nav shell">
-        <a className="brand" href="#top" aria-label="SUPER MURAH KUPANG home">
+        <a
+          className="brand"
+          href="#top"
+          aria-label="SUPER MURAH KUPANG home"
+        >
           <img
             className="store-logo"
             src={storeLogo}
             alt="Logo SUPER MURAH KUPANG"
           />
-          <span>SUPER</span> MURAH<span className="brand-dot">.</span>
+
+          <span>SUPER</span> MURAH
+          <span className="brand-dot">
+            .
+          </span>
+
           <small>KUPANG</small>
         </a>
-        <div className={`nav-links ${menuOpen ? "open" : ""}`}>
-          <a href="#koleksi" onClick={() => setMenuOpen(false)}>
-            Koleksi <ChevronDown size={15} />
+
+        <div
+          className={`nav-links ${
+            menuOpen ? "open" : ""
+          }`}
+        >
+          <a
+            href="#koleksi"
+            onClick={() =>
+              setMenuOpen(false)
+            }
+          >
+            Koleksi{" "}
+            <ChevronDown size={15} />
           </a>
-          <a href="#unggulan" onClick={() => setMenuOpen(false)}>
+
+          <a
+            href="#unggulan"
+            onClick={() =>
+              setMenuOpen(false)
+            }
+          >
             Harga Grosir
           </a>
-          <a href="#tentang" onClick={() => setMenuOpen(false)}>
+
+          <a
+            href="#tentang"
+            onClick={() =>
+              setMenuOpen(false)
+            }
+          >
             Tentang Kami
           </a>
         </div>
+
         <div className="nav-actions">
-          <button className="admin-link" onClick={() => setAdminOpen(true)}>
+          <button
+            className="admin-link"
+            onClick={() => {
+              setAdminOpen(true);
+              setLoginError("");
+            }}
+          >
             <LogIn size={16} /> Admin
           </button>
-          <button className="order-btn" onClick={whatsapp}>
-            Pesan via WhatsApp <ArrowRight size={16} />
+
+          <button
+            className="order-btn"
+            onClick={whatsapp}
+          >
+            Pesan via WhatsApp{" "}
+            <ArrowRight size={16} />
           </button>
+
           <button
             className="menu-btn"
-            onClick={() => setMenuOpen(!menuOpen)}
+            onClick={() =>
+              setMenuOpen(!menuOpen)
+            }
             aria-label="Buka menu"
           >
-            {menuOpen ? <X /> : <Menu />}
+            {menuOpen ? (
+              <X />
+            ) : (
+              <Menu />
+            )}
           </button>
         </div>
       </nav>
-      <section className="hero shell" id="top">
+
+      {/* =====================================================
+          HERO
+      ====================================================== */}
+
+      <section
+        className="hero shell"
+        id="top"
+      >
         <div className="hero-copy">
-          <p className="eyebrow">Grosir perabot rumah tangga Kupang</p>
+          <p className="eyebrow">
+            Grosir perabot rumah tangga Kupang
+          </p>
+
           <h1>
             Harga super murah,
             <br />
             <em>pilihan</em> serba lengkap.
           </h1>
+
           <p className="hero-text">
-            Belanja perabot rumah tangga untuk kebutuhan rumah, toko, kos, dan
-            usaha Anda. Ada harga ecer, grosir, dan super grosir.
+            Belanja perabot rumah tangga untuk
+            kebutuhan rumah, toko, kos, dan usaha
+            Anda. Ada harga ecer, grosir, dan super
+            grosir.
           </p>
+
           <div className="hero-cta">
             <button
               className="primary-btn"
               onClick={() =>
                 document
-                  .getElementById("unggulan")
-                  ?.scrollIntoView({ behavior: "smooth" })
+                  .getElementById(
+                    "unggulan",
+                  )
+                  ?.scrollIntoView({
+                    behavior:
+                      "smooth",
+                  })
               }
             >
-              Lihat katalog <ArrowRight size={17} />
+              Lihat katalog{" "}
+              <ArrowRight size={17} />
             </button>
+
             <button
               className="play-btn"
               onClick={whatsapp}
@@ -549,20 +1869,23 @@ function App() {
             </button>
           </div>
         </div>
+
         <div className="hero-image">
           <img
             src={
-              promotionImage ||
+              heroPromotion ||
               "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1400&q=90"
             }
             alt={
-              promotionImage
+              heroPromotion
                 ? "Promosi SUPER MURAH KUPANG"
                 : "Interior rumah dengan perabot pilihan"
             }
           />
+
           <div className="hero-note">
             <span className="note-line" />
+
             <span>
               Harga bersahabat,
               <br />
@@ -571,6 +1894,11 @@ function App() {
           </div>
         </div>
       </section>
+
+      {/* =====================================================
+          TRUST BAR
+      ====================================================== */}
+
       <section className="trust-bar">
         <div className="shell trust-items">
           <div>
@@ -581,6 +1909,7 @@ function App() {
               sesuai kebutuhan
             </span>
           </div>
+
           <div>
             <strong>1000+</strong>
             <span>
@@ -589,6 +1918,7 @@ function App() {
               dikirim
             </span>
           </div>
+
           <div>
             <strong>KPG</strong>
             <span>
@@ -597,341 +1927,605 @@ function App() {
               dan sekitarnya
             </span>
           </div>
+
           <div className="trust-quote">
             “Belanja banyak makin hemat,
             <br />
-            <em>cocok untuk toko dan usaha.</em>”
+            <em>
+              cocok untuk toko dan usaha.
+            </em>
+            ”
           </div>
         </div>
       </section>
-      <section className="section shell" id="koleksi">
+
+      {/* =====================================================
+          CATEGORY SECTION
+      ====================================================== */}
+
+      <section
+        className="section shell"
+        id="koleksi"
+      >
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Cari berdasarkan kebutuhan</p>
+            <p className="eyebrow">
+              Cari berdasarkan kebutuhan
+            </p>
+
             <h2>
               Lengkapi setiap
               <br />
               <em>sudut rumah.</em>
             </h2>
           </div>
+
           <p className="section-intro">
-            Katalog perabot fungsional dengan pilihan harga yang transparan
-            untuk pembelian satuan sampai dalam jumlah besar.
+            Katalog perabot fungsional dengan pilihan
+            harga yang transparan untuk pembelian satuan
+            sampai dalam jumlah besar.
           </p>
         </div>
+
         <div className="category-grid">
-          {categories.map((category, index) => {
-            const visual = defaultCategories[index % defaultCategories.length];
-            return (
+          {categories.map(
+            (category, index) => (
               <button
-                className={`category-card category-${index % 4}`}
-                key={category}
+                className={`category-card category-${
+                  index % 4
+                }`}
+                key={category.id}
                 onClick={() => {
-                  setActiveCategory(category);
+                  setActiveCategory(
+                    category.name,
+                  );
+
                   document
-                    .getElementById("unggulan")
-                    ?.scrollIntoView({ behavior: "smooth" });
+                    .getElementById(
+                      "unggulan",
+                    )
+                    ?.scrollIntoView({
+                      behavior:
+                        "smooth",
+                    });
                 }}
               >
                 <img
-                  src={categoryImages[category] || visual.image}
-                  alt={category}
+                  src={
+                    category.image ||
+                    getDefaultCategoryImage(
+                      category.name,
+                    )
+                  }
+                  alt={category.name}
                 />
-                <span>{category}</span>
+
+                <span>
+                  {category.name}
+                </span>
+
                 <ArrowRight size={19} />
               </button>
-            );
-          })}
+            ),
+          )}
         </div>
       </section>
-      <section className="featured section" id="unggulan">
+
+      {/* =====================================================
+          PRODUCT CATALOG
+      ====================================================== */}
+
+      <section
+        className="featured section"
+        id="unggulan"
+      >
         <div className="shell">
           <div className="section-heading featured-heading">
             <div>
-              <p className="eyebrow">Katalog terbaru</p>
+              <p className="eyebrow">
+                Katalog terbaru
+              </p>
+
               <h2>
                 Harga <em>terbaik.</em>
               </h2>
             </div>
+
             <div className="catalog-actions">
               <label className="public-search catalog-search">
                 <Search size={18} />
+
                 <input
                   value={publicSearch}
-                  onChange={(event) => setPublicSearch(event.target.value)}
+                  onChange={(event) =>
+                    setPublicSearch(
+                      event.target
+                        .value,
+                    )
+                  }
                   placeholder="Cari nama barang atau kategori..."
                   aria-label="Cari nama atau kategori produk"
                 />
+
                 {publicSearch && (
                   <button
                     type="button"
-                    onClick={() => setPublicSearch("")}
+                    onClick={() =>
+                      setPublicSearch(
+                        "",
+                      )
+                    }
                     aria-label="Hapus pencarian produk"
                   >
                     <X size={14} />
                   </button>
                 )}
               </label>
+
               <div className="filters">
-                {["Semua", ...categories].map((category) => (
-                  <button
-                    className={activeCategory === category ? "active" : ""}
-                    key={category}
-                    onClick={() => setActiveCategory(category)}
-                  >
-                    {category}
-                  </button>
-                ))}
+                {[
+                  "Semua",
+                  ...categoryNames,
+                ].map(
+                  (category) => (
+                    <button
+                      className={
+                        activeCategory ===
+                        category
+                          ? "active"
+                          : ""
+                      }
+                      key={category}
+                      onClick={() =>
+                        setActiveCategory(
+                          category,
+                        )
+                      }
+                    >
+                      {category}
+                    </button>
+                  ),
+                )}
               </div>
             </div>
           </div>
+
           <div className="price-legend">
             <span>
-              <i className="retail-dot" /> Ecer
+              <i className="retail-dot" />{" "}
+              Ecer
             </span>
+
             <span>
-              <i className="wholesale-dot" /> Grosir
+              <i className="wholesale-dot" />{" "}
+              Grosir
             </span>
+
             <span>
-              <i className="super-dot" /> Super grosir
+              <i className="super-dot" />{" "}
+              Super grosir
             </span>
           </div>
+
           <div className="product-grid">
-            {visibleProducts.map((product) => (
-              <article className="product-card" key={product.id}>
-                <div className="product-image">
-                  {product.badge && (
-                    <span className="badge">{product.badge}</span>
-                  )}
-                  <button
-                    className="product-photo-button"
-                    onClick={() => setSelectedProduct(product)}
-                    aria-label={`Lihat detail ${product.name}`}
-                  >
-                    <img
-                      src={
-                        product.image ||
-                        categoryImages[product.category] ||
-                        defaultCategories[0].image
-                      }
-                      alt={product.name}
-                    />
-                  </button>
-                  <div className="quantity-controls">
+            {visibleProducts.map(
+              (product) => (
+                <article
+                  className="product-card"
+                  key={product.id}
+                >
+                  <div className="product-image">
+                    {product.badge && (
+                      <span className="badge">
+                        {product.badge}
+                      </span>
+                    )}
+
                     <button
-                      className="quantity-minus"
+                      className="product-photo-button"
                       onClick={() =>
-                        changeCartQuantity(
-                          product.id,
-                          (cart[product.id] || 0) - 1,
+                        setSelectedProduct(
+                          product,
                         )
                       }
-                      disabled={!cart[product.id]}
-                      aria-label={`Kurangi ${product.name}`}
+                      aria-label={`Lihat detail ${product.name}`}
                     >
-                      −
+                      <img
+                        src={
+                          product.image ||
+                          getDefaultCategoryImage(
+                            product.category,
+                          )
+                        }
+                        alt={product.name}
+                      />
                     </button>
-                    <span>{cart[product.id] || 0}</span>
-                    <button
-                      className="quick-view"
-                      onClick={() => addToCart(product)}
-                      aria-label={`Tambah ${product.name} ke keranjang`}
-                    >
-                      +
-                    </button>
+
+                    <div className="quantity-controls">
+                      <button
+                        className="quantity-minus"
+                        onClick={() =>
+                          changeCartQuantity(
+                            product.id,
+                            (cart[
+                              product.id
+                            ] || 0) - 1,
+                          )
+                        }
+                        disabled={
+                          !cart[
+                            product.id
+                          ]
+                        }
+                        aria-label={`Kurangi ${product.name}`}
+                      >
+                        −
+                      </button>
+
+                      <span>
+                        {cart[
+                          product.id
+                        ] || 0}
+                      </span>
+
+                      <button
+                        className="quick-view"
+                        onClick={() =>
+                          addToCart(
+                            product,
+                          )
+                        }
+                        aria-label={`Tambah ${product.name} ke keranjang`}
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
-                </div>
-                <div className="product-info">
-                  <div>
-                    <p className="product-category">{product.category}</p>
-                    <h3>{product.name}</h3>
+
+                  <div className="product-info">
+                    <div>
+                      <p className="product-category">
+                        {product.category}
+                      </p>
+
+                      <h3>
+                        {product.name}
+                      </h3>
+                    </div>
+
+                    <div className="price-stack">
+                      <strong>
+                        {formatRupiah(
+                          getPrice(
+                            product,
+                            cart[
+                              product.id
+                            ] || 0,
+                          ),
+                        )}
+                      </strong>
+
+                      <span>
+                        {
+                          product.wholesale
+                        }{" "}
+                        grosir
+                      </span>
+
+                      <span>
+                        {
+                          product.superWholesale
+                        }{" "}
+                        super
+                      </span>
+                    </div>
                   </div>
-                  <div className="price-stack">
-                    <strong>
-                      {formatRupiah(
-                        getPrice(
-                          product,
-                          cart[product.id] || 1,
-                          totalQuantity || 1,
-                        ),
-                      )}
-                    </strong>
-                    <span>{product.wholesale} grosir</span>
-                    <span>{product.superWholesale} super</span>
-                  </div>
-                </div>
-              </article>
-            ))}
+                </article>
+              ),
+            )}
           </div>
-          {publicFilteredProducts.length === 0 && (
+
+          {publicFilteredProducts.length ===
+            0 && (
             <p className="empty-catalog">
-              Produk tidak ditemukan. Coba kata kunci atau kategori lain.
+              Produk tidak ditemukan. Coba kata kunci
+              atau kategori lain.
             </p>
           )}
+
           {totalPublicPages > 1 && (
-            <nav className="pagination" aria-label="Halaman katalog">
+            <nav
+              className="pagination"
+              aria-label="Halaman katalog"
+            >
               <button
-                onClick={() => setPublicPage(Math.max(1, publicPage - 1))}
-                disabled={publicPage === 1}
+                onClick={() =>
+                  setPublicPage(
+                    Math.max(
+                      1,
+                      publicPage - 1,
+                    ),
+                  )
+                }
+                disabled={
+                  publicPage === 1
+                }
                 aria-label="Halaman sebelumnya"
               >
                 ‹
               </button>
-              {visiblePageNumbers.map((page) => (
-                <button
-                  key={page}
-                  className={publicPage === page ? "active" : ""}
-                  onClick={() => setPublicPage(page)}
-                  aria-label={`Halaman ${page}`}
-                  aria-current={publicPage === page ? "page" : undefined}
-                >
-                  {page}
-                </button>
-              ))}
+
+              {visiblePageNumbers.map(
+                (page) => (
+                  <button
+                    key={page}
+                    className={
+                      publicPage ===
+                      page
+                        ? "active"
+                        : ""
+                    }
+                    onClick={() =>
+                      setPublicPage(
+                        page,
+                      )
+                    }
+                    aria-label={`Halaman ${page}`}
+                    aria-current={
+                      publicPage ===
+                      page
+                        ? "page"
+                        : undefined
+                    }
+                  >
+                    {page}
+                  </button>
+                ),
+              )}
+
               <button
                 onClick={() =>
-                  setPublicPage(Math.min(totalPublicPages, publicPage + 1))
+                  setPublicPage(
+                    Math.min(
+                      totalPublicPages,
+                      publicPage + 1,
+                    ),
+                  )
                 }
-                disabled={publicPage === totalPublicPages}
+                disabled={
+                  publicPage ===
+                  totalPublicPages
+                }
                 aria-label="Halaman berikutnya"
               >
                 ›
               </button>
             </nav>
           )}
+
+          {/* CART */}
+
           <div className="cart-bar">
             <div>
-              <strong>{totalQuantity} pcs di keranjang</strong>
+              <strong>
+                {totalQuantity} pcs di
+                keranjang
+              </strong>
+
               <span>
-                {totalQuantity >= 36
-                  ? "Harga super grosir aktif"
-                  : totalQuantity >= 6
-                    ? "Harga grosir aktif"
-                    : "Tambah 6 pcs untuk harga grosir"}
+                {cartItems.some(
+                  (product) =>
+                    (cart[product.id] || 0) >= 36,
+                )
+                  ? "Harga super grosir aktif pada produk yang mencapai 36 pcs"
+                  : cartItems.some(
+                        (product) =>
+                          (cart[product.id] || 0) >= 6,
+                      )
+                    ? "Harga grosir aktif pada produk yang mencapai 6 pcs"
+                    : "Tambah 6 pcs pada produk yang sama untuk harga grosir"}
               </span>
             </div>
+
             <strong>
               {formatRupiah(
                 cartItems.reduce(
-                  (sum, product) =>
+                  (
+                    sum,
+                    product,
+                  ) =>
                     sum +
-                    getPrice(product, cart[product.id], totalQuantity) *
-                    cart[product.id],
+                    getPrice(
+                      product,
+                      cart[
+                        product.id
+                      ],
+                    ) *
+                      cart[
+                        product.id
+                      ],
                   0,
                 ),
               )}
             </strong>
+
             <button
               className="primary-btn"
               onClick={checkout}
-              disabled={!cartItems.length}
+              disabled={
+                !cartItems.length
+              }
             >
-              Checkout via WhatsApp <MessageCircle size={17} />
+              Checkout via WhatsApp{" "}
+              <MessageCircle size={17} />
             </button>
           </div>
         </div>
       </section>
-      <section className="benefits shell" id="tentang">
+
+      {/* =====================================================
+          ABOUT
+      ====================================================== */}
+
+      <section
+        className="benefits shell"
+        id="tentang"
+      >
         <div className="benefit-photo">
           <img
             src={
-              lowerPromotionImage ||
+              lowerPromotion ||
               "https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=1000&q=85"
             }
             alt={
-              lowerPromotionImage
+              lowerPromotion
                 ? "Promosi bawah SUPER MURAH KUPANG"
                 : "Detail perabot rumah tangga"
             }
           />
         </div>
+
         <div className="benefit-copy">
-          <p className="eyebrow">Kenapa SUPER MURAH KUPANG?</p>
+          <p className="eyebrow">
+            Kenapa SUPER MURAH KUPANG?
+          </p>
+
           <h2>
             Belanja mudah,
             <br />
             <em>untung lebih.</em>
           </h2>
+
           <p>
-            Kami membantu rumah tangga, pemilik toko, dan pelaku usaha
-            mendapatkan perabot berkualitas dengan harga yang jelas sejak awal.
+            Kami membantu rumah tangga, pemilik toko,
+            dan pelaku usaha mendapatkan perabot
+            berkualitas dengan harga yang jelas sejak
+            awal.
           </p>
+
           <div className="benefit-list">
             <div>
               <Truck size={21} />
+
               <span>
-                <strong>Pengiriman dari Kupang</strong>
-                <small>Stok aman dan siap dikirim.</small>
+                <strong>
+                  Pengiriman dari Kupang
+                </strong>
+
+                <small>
+                  Stok aman dan siap
+                  dikirim.
+                </small>
               </span>
             </div>
+
             <div>
               <Package size={21} />
+
               <span>
-                <strong>Harga bertingkat</strong>
-                <small>Ecer, grosir, sampai super grosir.</small>
+                <strong>
+                  Harga bertingkat
+                </strong>
+
+                <small>
+                  Ecer, grosir, sampai
+                  super grosir.
+                </small>
               </span>
             </div>
+
             <div>
               <ShieldCheck size={21} />
+
               <span>
-                <strong>Produk pilihan</strong>
-                <small>Cocok untuk rumah dan kebutuhan usaha.</small>
+                <strong>
+                  Produk pilihan
+                </strong>
+
+                <small>
+                  Cocok untuk rumah dan
+                  kebutuhan usaha.
+                </small>
               </span>
             </div>
           </div>
         </div>
       </section>
+
+      {/* =====================================================
+          CLOSING
+      ====================================================== */}
+
       <section className="closing">
         <div className="shell closing-inner">
-          <p className="eyebrow">Mulai belanja hari ini</p>
+          <p className="eyebrow">
+            Mulai belanja hari ini
+          </p>
+
           <h2>
             Harga murah untuk
             <br />
             <em>semua kebutuhan.</em>
           </h2>
-          <button className="primary-btn light" onClick={whatsapp}>
-            Konsultasi stok sekarang <MessageCircle size={18} />
+
+          <button
+            className="primary-btn light"
+            onClick={whatsapp}
+          >
+            Konsultasi stok sekarang{" "}
+            <MessageCircle size={18} />
           </button>
         </div>
       </section>
+
+      {/* =====================================================
+          FOOTER
+      ====================================================== */}
+
       <footer className="footer">
         <div className="footer-inner shell">
+          <a
+            className="footer-brand"
+            href="#top"
+          >
+            <span>SUPER</span> MURAH
+            <span className="brand-dot">
+              .
+            </span>
 
-          {/* BRAND */}
-          <a className="footer-brand" href="#top">
-            <span>SUPER</span> MURAH<span className="brand-dot">.</span>
             <small>KUPANG</small>
           </a>
 
-          {/* DESCRIPTION */}
           <p className="footer-description">
             Perabot lengkap, harga super murah.
           </p>
 
-          {/* WHATSAPP */}
           <a
             className="footer-whatsapp"
             href="https://wa.me/6285755463065"
             target="_blank"
             rel="noreferrer"
           >
-            <span className="footer-label">WhatsApp</span>
-            <span>085755463065</span>
+            <span className="footer-label">
+              WhatsApp
+            </span>
+
+            <span>
+              085755463065
+            </span>
           </a>
 
-          {/* SOCIAL MEDIA */}
           <div className="footer-social">
-            <span className="footer-label">Ikuti kami</span>
+            <span className="footer-label">
+              Ikuti kami
+            </span>
 
             <div className="social-links">
-
-              {/* INSTAGRAM */}
               <a
                 href="https://instagram.com/supermurah_kupang"
                 target="_blank"
                 rel="noreferrer"
                 aria-label="Instagram SUPER MURAH KUPANG"
-                title="Instagram SUPER MURAH KUPANG"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -947,6 +2541,7 @@ function App() {
                     stroke="currentColor"
                     strokeWidth="1.8"
                   />
+
                   <circle
                     cx="12"
                     cy="12"
@@ -955,6 +2550,7 @@ function App() {
                     stroke="currentColor"
                     strokeWidth="1.8"
                   />
+
                   <circle
                     cx="17.5"
                     cy="6.5"
@@ -963,16 +2559,16 @@ function App() {
                   />
                 </svg>
 
-                <span>@supermurah_kupang</span>
+                <span>
+                  @supermurah_kupang
+                </span>
               </a>
 
-              {/* TIKTOK */}
               <a
                 href="https://tiktok.com/@super.murah.kupang"
                 target="_blank"
                 rel="noreferrer"
                 aria-label="TikTok SUPER MURAH KUPANG"
-                title="TikTok SUPER MURAH KUPANG"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -984,282 +2580,728 @@ function App() {
                   />
                 </svg>
 
-                <span>@super.murah.kupang</span>
+                <span>
+                  @super.murah.kupang
+                </span>
               </a>
-
             </div>
           </div>
 
-          {/* COPYRIGHT */}
           <small className="footer-copyright">
             © 2024 SUPER MURAH KUPANG
           </small>
-
         </div>
       </footer>
+
+      {/* =====================================================
+          PRODUCT DETAIL MODAL
+      ====================================================== */}
+
       {selectedProduct && (
         <div
           className="modal-backdrop"
-          onClick={() => setSelectedProduct(null)}
+          onClick={() =>
+            setSelectedProduct(
+              null,
+            )
+          }
         >
           <div
             className="product-detail-modal"
-            onClick={(event) => event.stopPropagation()}
+            onClick={(event) =>
+              event.stopPropagation()
+            }
           >
             <button
               className="close-modal"
-              onClick={() => setSelectedProduct(null)}
+              onClick={() =>
+                setSelectedProduct(
+                  null,
+                )
+              }
             >
               <X />
             </button>
+
             <img
               src={
                 selectedProduct.image ||
-                categoryImages[selectedProduct.category] ||
-                defaultCategories[0].image
+                getDefaultCategoryImage(
+                  selectedProduct.category,
+                )
               }
-              alt={selectedProduct.name}
+              alt={
+                selectedProduct.name
+              }
             />
+
             <div>
-              <p className="product-category">{selectedProduct.category}</p>
-              <h2>{selectedProduct.name}</h2>
+              <p className="product-category">
+                {
+                  selectedProduct.category
+                }
+              </p>
+
+              <h2>
+                {
+                  selectedProduct.name
+                }
+              </h2>
+
               <p className="detail-description">
                 {selectedProduct.description ||
                   "Produk pilihan SUPER MURAH KUPANG untuk kebutuhan rumah dan usaha Anda."}
               </p>
+
               <div className="detail-price">
-                <span>Mulai dari</span>
+                <span>
+                  Mulai dari
+                </span>
+
                 <strong>
                   {formatRupiah(
-                    getPrice(selectedProduct, cart[selectedProduct.id] || 1),
+                    getPrice(
+                      selectedProduct,
+                      cart[
+                        selectedProduct.id
+                      ] || 1,
+                    ),
                   )}
                 </strong>
               </div>
+
               <div className="detail-actions">
                 <button
                   className="secondary-btn"
-                  onClick={() => addToCart(selectedProduct)}
+                  onClick={() =>
+                    addToCart(
+                      selectedProduct,
+                    )
+                  }
                 >
-                  <Plus size={16} /> Tambah 1 pcs
+                  <Plus size={16} /> Tambah
+                  1 pcs
                 </button>
-                <span>{cart[selectedProduct.id] || 0} pcs di keranjang</span>
+
+                <span>
+                  {cart[
+                    selectedProduct.id
+                  ] || 0}{" "}
+                  pcs di keranjang
+                </span>
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* =====================================================
+          ADMIN LOGIN / DASHBOARD
+      ====================================================== */}
+
       {adminOpen && (
         <div
           className="modal-backdrop"
-          onClick={() => !isAdmin && setAdminOpen(false)}
+          onClick={() => {
+            if (!isAdmin) {
+              setAdminOpen(false);
+            }
+          }}
         >
           <div
-            className={`admin-modal ${isAdmin ? "dashboard-modal" : ""}`}
-            onClick={(event) => event.stopPropagation()}
+            className={`admin-modal ${
+              isAdmin
+                ? "dashboard-modal"
+                : ""
+            }`}
+            onClick={(event) =>
+              event.stopPropagation()
+            }
           >
             {!isAdmin ? (
-              <form onSubmit={submitLogin} className="login-panel">
+              /* =================================================
+                 LOGIN
+              ================================================== */
+
+              <form
+                onSubmit={submitLogin}
+                className="login-panel"
+              >
                 <button
                   type="button"
                   className="close-modal"
-                  onClick={() => setAdminOpen(false)}
+                  onClick={() =>
+                    setAdminOpen(false)
+                  }
                 >
                   <X />
                 </button>
+
                 <div className="admin-mark">
                   <LogIn />
                 </div>
-                <p className="eyebrow">Area pengelola</p>
+
+                <p className="eyebrow">
+                  Area pengelola
+                </p>
+
                 <h2>
                   Login <em>admin.</em>
                 </h2>
-                <p>Kelola foto katalog dan harga produk SUPER MURAH KUPANG.</p>
+
+                <p>
+                  Kelola katalog, kategori, harga,
+                  dan gambar promosi SUPER MURAH
+                  KUPANG.
+                </p>
+
                 <label>
-                  Username
+                  Email admin
+
                   <input
-                    name="username"
-                    value={login.username}
-                    onChange={updateLogin}
-                    placeholder="Masukkan username"
+                    name="email"
+                    type="email"
+                    value={
+                      login.email
+                    }
+                    onChange={
+                      updateLogin
+                    }
+                    placeholder="admin@email.com"
+                    autoComplete="email"
+                    required
                   />
                 </label>
+
                 <label>
                   Password
+
                   <input
                     name="password"
                     type="password"
-                    value={login.password}
-                    onChange={updateLogin}
+                    value={
+                      login.password
+                    }
+                    onChange={
+                      updateLogin
+                    }
                     placeholder="Masukkan password"
+                    autoComplete="current-password"
+                    required
                   />
                 </label>
-                {loginError && <div className="login-error">{loginError}</div>}
-                <button className="primary-btn login-button">
-                  Masuk ke dashboard <ArrowRight size={17} />
+
+                {loginError && (
+                  <div className="login-error">
+                    {loginError}
+                  </div>
+                )}
+
+                <button
+                  className="primary-btn login-button"
+                  disabled={
+                    loginLoading ||
+                    checkingAuth
+                  }
+                >
+                  {loginLoading
+                    ? "Memeriksa..."
+                    : "Masuk ke dashboard"}
+
+                  {!loginLoading && (
+                    <ArrowRight size={17} />
+                  )}
                 </button>
               </form>
             ) : (
+              /* =================================================
+                 DASHBOARD
+              ================================================== */
+
               <div className="dashboard">
                 <aside className="dashboard-sidebar">
-                  <p className="sidebar-label">Menu admin</p>
+                  <p className="sidebar-label">
+                    Menu admin
+                  </p>
+
                   <button
-                    className={adminSection === "catalog" ? "active" : ""}
-                    onClick={() => setAdminSection("catalog")}
+                    className={
+                      adminSection ===
+                      "catalog"
+                        ? "active"
+                        : ""
+                    }
+                    onClick={() =>
+                      setAdminSection(
+                        "catalog",
+                      )
+                    }
                   >
-                    <LayoutDashboard size={17} /> Katalog produk
+                    <LayoutDashboard
+                      size={17}
+                    />
+
+                    Katalog produk
                   </button>
+
                   <button
-                    className={adminSection === "promotion" ? "active" : ""}
-                    onClick={() => setAdminSection("promotion")}
+                    className={
+                      adminSection ===
+                      "promotion"
+                        ? "active"
+                        : ""
+                    }
+                    onClick={() =>
+                      setAdminSection(
+                        "promotion",
+                      )
+                    }
                   >
-                    <Megaphone size={17} /> Halaman promosi
+                    <Megaphone
+                      size={17}
+                    />
+
+                    Halaman promosi
                   </button>
+
                   <button
-                    className={adminSection === "categories" ? "active" : ""}
-                    onClick={() => setAdminSection("categories")}
+                    className={
+                      adminSection ===
+                      "categories"
+                        ? "active"
+                        : ""
+                    }
+                    onClick={() =>
+                      setAdminSection(
+                        "categories",
+                      )
+                    }
                   >
-                    <Tags size={17} /> Kelola kategori
+                    <Tags size={17} />
+
+                    Kelola kategori
                   </button>
                 </aside>
+
                 <div className="dashboard-content">
                   <div className="dashboard-top">
                     <div>
-                      <p className="eyebrow">Dashboard admin</p>
+                      <p className="eyebrow">
+                        Dashboard admin
+                      </p>
+
                       <h2>
-                        Kelola <em>katalog.</em>
+                        Kelola{" "}
+                        <em>katalog.</em>
                       </h2>
                     </div>
+
                     <div className="dashboard-actions">
-                      <label className="import-btn">
-                        <input
-                          type="file"
-                          accept=".xlsx,.xls,.csv"
-                          onChange={importExcel}
-                        />
-                        <Package size={16} /> Import Excel
-                      </label>
-                      <button
-                        className="secondary-btn"
-                        onClick={() => openEditor()}
-                      >
-                        <Plus size={16} /> Tambah produk
-                      </button>
+                      {adminSection ===
+                        "catalog" && (
+                        <>
+                          <label className="import-btn">
+                            <input
+                              type="file"
+                              accept=".xlsx,.xls,.csv"
+                              onChange={
+                                importExcel
+                              }
+                            />
+
+                            <Package
+                              size={16}
+                            />
+
+                            Import Excel
+                          </label>
+
+                          <button
+                            className="secondary-btn"
+                            onClick={() =>
+                              openEditor()
+                            }
+                          >
+                            <Plus
+                              size={16}
+                            />
+
+                            Tambah produk
+                          </button>
+                        </>
+                      )}
+
                       <button
                         className="logout-btn"
-                        onClick={() => {
-                          sessionStorage.removeItem("super-murah-admin");
-                          setIsAdmin(false);
-                        }}
+                        onClick={logout}
                       >
-                        <LogOut size={16} /> Keluar
+                        <LogOut
+                          size={16}
+                        />
+
+                        Keluar
                       </button>
+
                       <button
                         className="close-modal"
-                        onClick={() => setAdminOpen(false)}
+                        onClick={() =>
+                          setAdminOpen(
+                            false,
+                          )
+                        }
                       >
                         <X />
                       </button>
                     </div>
                   </div>
+
                   <p className="dashboard-desc">
-                    Import ribuan barang sekaligus, lalu atur kategori dan tiga
-                    tingkat harga.
+                    Kelola katalog secara langsung
+                    menggunakan database Supabase.
                   </p>
-                  {adminSection === "catalog" && (
+
+                  {/* =================================================
+                     ADMIN CATALOG
+                  ================================================== */}
+
+                  {adminSection ===
+                    "catalog" && (
                     <>
                       <div className="admin-search">
-                        <Search size={17} />
+                        <Search
+                          size={17}
+                        />
+
                         <input
-                          value={adminSearch}
-                          onChange={(event) =>
-                            setAdminSearch(event.target.value)
+                          value={
+                            adminSearch
+                          }
+                          onChange={(
+                            event,
+                          ) =>
+                            setAdminSearch(
+                              event
+                                .target
+                                .value,
+                            )
                           }
                           placeholder="Cari nama atau kategori barang..."
                           aria-label="Cari nama atau kategori barang"
                         />
+
                         {adminSearch && (
                           <button
                             type="button"
-                            onClick={() => setAdminSearch("")}
+                            onClick={() =>
+                              setAdminSearch(
+                                "",
+                              )
+                            }
                             aria-label="Hapus pencarian"
                           >
-                            <X size={14} />
+                            <X
+                              size={14}
+                            />
                           </button>
                         )}
+
                         <small>
-                          {adminSearch.trim().length >= 2
+                          {adminSearch.trim()
+                            .length >=
+                          2
                             ? `${adminFilteredProducts.length} produk ditemukan`
                             : "Ketik minimal 2 huruf untuk mencari"}
                         </small>
                       </div>
+
+                      <div className="import-hint">
+                        Format kolom Excel:
+                        {" "}
+                        <strong>
+                          Nama Barang
+                        </strong>
+                        ,{" "}
+                        <strong>
+                          Harga Ecer
+                        </strong>
+                        ,{" "}
+                        <strong>
+                          Harga Grosir
+                        </strong>
+                        ,{" "}
+                        <strong>
+                          Harga Super Grosir
+                        </strong>
+                        ,{" "}
+                        <strong>
+                          Gambar
+                        </strong>
+                        ,{" "}
+                        <strong>
+                          Kategori
+                        </strong>
+                        .
+                      </div>
+
+                      <div className="admin-product-list">
+                        {adminFilteredProducts.map(
+                          (product) => (
+                            <div
+                              className="admin-product-row"
+                              key={
+                                product.id
+                              }
+                            >
+                              <img
+                                src={
+                                  product.image ||
+                                  getDefaultCategoryImage(
+                                    product.category,
+                                  )
+                                }
+                                alt=""
+                              />
+
+                              <div>
+                                <strong>
+                                  {
+                                    product.name
+                                  }
+                                </strong>
+
+                                <small>
+                                  {
+                                    product.retail
+                                  }{" "}
+                                  /{" "}
+                                  {
+                                    product.wholesale
+                                  }{" "}
+                                  /{" "}
+                                  {
+                                    product.superWholesale
+                                  }
+                                </small>
+                              </div>
+
+                              <select
+                                value={
+                                  product.category
+                                }
+                                onChange={async (
+                                  event,
+                                ) => {
+                                  const category =
+                                    event
+                                      .target
+                                      .value;
+
+                                  const {
+                                    error,
+                                  } =
+                                    await supabase
+                                      .from(
+                                        "products",
+                                      )
+                                      .update({
+                                        category,
+                                      })
+                                      .eq(
+                                        "id",
+                                        product.id,
+                                      );
+
+                                  if (
+                                    error
+                                  ) {
+                                    alert(
+                                      `Kategori produk gagal diubah.\n\n${error.message}`,
+                                    );
+                                    return;
+                                  }
+
+                                  await loadProducts();
+                                }}
+                                aria-label={`Kategori ${product.name}`}
+                              >
+                                {categoryNames.map(
+                                  (
+                                    category,
+                                  ) => (
+                                    <option
+                                      key={
+                                        category
+                                      }
+                                    >
+                                      {
+                                        category
+                                      }
+                                    </option>
+                                  ),
+                                )}
+                              </select>
+
+                              <button
+                                className="edit-btn"
+                                onClick={() =>
+                                  openEditor(
+                                    product,
+                                  )
+                                }
+                              >
+                                <Pencil
+                                  size={15}
+                                />
+
+                                Edit
+                              </button>
+
+                              <button
+                                className="delete-btn"
+                                onClick={() =>
+                                  removeProduct(
+                                    product,
+                                  )
+                                }
+                                aria-label={`Hapus ${product.name}`}
+                              >
+                                <X
+                                  size={16}
+                                />
+                              </button>
+                            </div>
+                          ),
+                        )}
+                      </div>
                     </>
                   )}
-                  {adminSection === "promotion" && (
+
+                  {/* =================================================
+                     PROMOTION
+                  ================================================== */}
+
+                  {adminSection ===
+                    "promotion" && (
                     <div className="admin-settings promotion-settings">
                       <div className="settings-copy">
-                        <strong>Gambar utama / promosi</strong>
+                        <strong>
+                          Gambar utama / promosi
+                        </strong>
+
                         <small>
-                          Gambar ini menggantikan gambar utama di hero halaman
-                          depan.
+                          Gambar ini menggantikan gambar
+                          utama di hero halaman depan.
                         </small>
                       </div>
+
                       <label className="settings-upload">
                         <input
                           type="file"
                           accept="image/*"
-                          onChange={uploadPromotionImage}
+                          onChange={(
+                            event,
+                          ) =>
+                            uploadPromotionImage(
+                              1,
+                              event,
+                            )
+                          }
                         />
-                        {promotionImage ? (
-                          <img src={promotionImage} alt="Promosi saat ini" />
+
+                        {heroPromotion ? (
+                          <img
+                            src={
+                              heroPromotion
+                            }
+                            alt="Promosi utama"
+                          />
                         ) : (
-                          <ImagePlus size={18} />
+                          <ImagePlus
+                            size={18}
+                          />
                         )}
+
                         <span>
-                          {promotionImage
-                            ? "Ganti gambar utama"
-                            : "Upload gambar utama"}
+                          {uploadingPromotion ===
+                          1
+                            ? "Mengupload..."
+                            : heroPromotion
+                              ? "Ganti gambar utama"
+                              : "Upload gambar utama"}
                         </span>
                       </label>
-                      {promotionImage && (
+
+                      {heroPromotion && (
                         <button
                           className="remove-logo"
-                          onClick={() => setPromotionImage("")}
+                          onClick={() =>
+                            removePromotionImage(
+                              1,
+                            )
+                          }
                         >
                           Hapus gambar utama
                         </button>
                       )}
+
                       <div className="admin-settings lower-promotion-settings">
                         <div className="settings-copy">
-                          <strong>Gambar promosi bawah</strong>
+                          <strong>
+                            Gambar promosi bawah
+                          </strong>
+
                           <small>
-                            Gambar ini menggantikan foto di bagian bawah halaman
+                            Gambar ini menggantikan foto
+                            di bagian bawah halaman
                             depan.
                           </small>
                         </div>
+
                         <label className="settings-upload">
                           <input
                             type="file"
                             accept="image/*"
-                            onChange={uploadLowerPromotionImage}
+                            onChange={(
+                              event,
+                            ) =>
+                              uploadPromotionImage(
+                                2,
+                                event,
+                              )
+                            }
                           />
-                          {lowerPromotionImage ? (
+
+                          {lowerPromotion ? (
                             <img
-                              src={lowerPromotionImage}
-                              alt="Promosi bawah saat ini"
+                              src={
+                                lowerPromotion
+                              }
+                              alt="Promosi bawah"
                             />
                           ) : (
-                            <ImagePlus size={18} />
+                            <ImagePlus
+                              size={18}
+                            />
                           )}
+
                           <span>
-                            {lowerPromotionImage
-                              ? "Ganti gambar bawah"
-                              : "Upload gambar bawah"}
+                            {uploadingPromotion ===
+                            2
+                              ? "Mengupload..."
+                              : lowerPromotion
+                                ? "Ganti gambar bawah"
+                                : "Upload gambar bawah"}
                           </span>
                         </label>
-                        {lowerPromotionImage && (
+
+                        {lowerPromotion && (
                           <button
                             className="remove-logo"
-                            onClick={() => setLowerPromotionImage("")}
+                            onClick={() =>
+                              removePromotionImage(
+                                2,
+                              )
+                            }
                           >
                             Hapus gambar bawah
                           </button>
@@ -1267,140 +3309,164 @@ function App() {
                       </div>
                     </div>
                   )}
-                  {adminSection === "categories" && (
+
+                  {/* =================================================
+                     CATEGORIES
+                  ================================================== */}
+
+                  {adminSection ===
+                    "categories" && (
                     <div className="category-manager">
                       <div>
-                        <strong>Kelola kategori dan gambar</strong>
+                        <strong>
+                          Kelola kategori dan gambar
+                        </strong>
+
                         <small>
-                          Setiap gambar tersimpan otomatis dan langsung tampil
-                          di halaman depan.
+                          Setiap perubahan tersimpan di
+                          Supabase dan tetap ada setelah
+                          reload.
                         </small>
                       </div>
-                      <form onSubmit={addCategory}>
+
+                      <form
+                        onSubmit={
+                          addCategory
+                        }
+                      >
                         <input
-                          value={categoryName}
-                          onChange={(event) =>
-                            setCategoryName(event.target.value)
+                          value={
+                            categoryName
+                          }
+                          onChange={(
+                            event,
+                          ) =>
+                            setCategoryName(
+                              event
+                                .target
+                                .value,
+                            )
                           }
                           placeholder="Nama kategori baru"
+                          disabled={
+                            savingCategory
+                          }
                         />
-                        <button className="secondary-btn">
-                          <Plus size={15} /> Tambah
+
+                        <button
+                          className="secondary-btn"
+                          disabled={
+                            savingCategory
+                          }
+                        >
+                          <Plus
+                            size={15}
+                          />
+
+                          {savingCategory
+                            ? "Menyimpan..."
+                            : "Tambah"}
                         </button>
                       </form>
+
                       <div className="category-editor-grid">
-                        {categories.map((category) => (
-                          <div className="category-editor-card" key={category}>
-                            <img
-                              src={
-                                categoryImages[category] ||
-                                defaultCategories.find(
-                                  (item) => item.label === category,
-                                )?.image ||
-                                defaultCategories[0].image
+                        {categories.map(
+                          (
+                            category,
+                          ) => (
+                            <div
+                              className="category-editor-card"
+                              key={
+                                category.id
                               }
-                              alt={`Gambar ${category}`}
-                            />
-                            <strong>{category}</strong>
-                            <div className="category-editor-actions">
-                              <label className="edit-image-btn">
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  onChange={(event) =>
-                                    uploadCategoryImage(category, event)
-                                  }
-                                />
-                                <ImagePlus size={14} />{" "}
-                                {categoryImages[category]
-                                  ? "Ganti gambar"
-                                  : "Tambah gambar"}
-                              </label>
-                              {categoryImages[category] && (
+                            >
+                              <img
+                                src={
+                                  category.image ||
+                                  getDefaultCategoryImage(
+                                    category.name,
+                                  )
+                                }
+                                alt={`Gambar ${category.name}`}
+                              />
+
+                              <strong>
+                                {
+                                  category.name
+                                }
+                              </strong>
+
+                              <div className="category-editor-actions">
+                                <label className="edit-image-btn">
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(
+                                      event,
+                                    ) =>
+                                      uploadCategoryImage(
+                                        category,
+                                        event,
+                                      )
+                                    }
+                                    disabled={
+                                      uploadingCategoryImage ===
+                                      category.id
+                                    }
+                                  />
+
+                                  <ImagePlus
+                                    size={14}
+                                  />
+
+                                  {uploadingCategoryImage ===
+                                  category.id
+                                    ? "Mengupload..."
+                                    : "Ganti gambar"}
+                                </label>
+
                                 <button
                                   type="button"
                                   className="remove-image-btn"
-                                  onClick={() => removeCategoryImage(category)}
+                                  onClick={() =>
+                                    removeCategoryImage(
+                                      category,
+                                    )
+                                  }
                                 >
                                   Hapus gambar
                                 </button>
-                              )}
-                              <button
-                                type="button"
-                                className="delete-category-btn"
-                                onClick={() => removeCategory(category)}
-                                disabled={products.some(
-                                  (product) => product.category === category,
-                                )}
-                                aria-label={`Hapus kategori ${category}`}
-                              >
-                                <X size={14} /> Hapus kategori
-                              </button>
+
+                                <button
+                                  type="button"
+                                  className="delete-category-btn"
+                                  onClick={() =>
+                                    removeCategory(
+                                      category,
+                                    )
+                                  }
+                                  disabled={products.some(
+                                    (
+                                      product,
+                                    ) =>
+                                      product.category ===
+                                      category.name,
+                                  )}
+                                >
+                                  <X
+                                    size={
+                                      14
+                                    }
+                                  />
+
+                                  Hapus kategori
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ),
+                        )}
                       </div>
                     </div>
-                  )}
-                  {adminSection === "catalog" && (
-                    <>
-                      <div className="import-hint">
-                        Format kolom Excel: <strong>Nama Barang</strong>,{" "}
-                        <strong>Harga Ecer</strong>,{" "}
-                        <strong>Harga Grosir</strong>,{" "}
-                        <strong>Harga Super Grosir</strong>,{" "}
-                        <strong>Gambar</strong> (URL opsional),{" "}
-                        <strong>Kategori</strong> (opsional).
-                      </div>
-                      <div className="admin-product-list">
-                        {adminFilteredProducts.map((product) => (
-                          <div className="admin-product-row" key={product.id}>
-                            <img
-                              src={
-                                product.image ||
-                                categoryImages[product.category] ||
-                                defaultCategories[0].image
-                              }
-                              alt=""
-                            />
-                            <div>
-                              <strong>{product.name}</strong>
-                              <small>
-                                {product.retail} / {product.wholesale} /{" "}
-                                {product.superWholesale}
-                              </small>
-                            </div>
-                            <select
-                              value={product.category}
-                              onChange={(event) =>
-                                changeProductCategory(
-                                  product.id,
-                                  event.target.value,
-                                )
-                              }
-                              aria-label={`Kategori ${product.name}`}
-                            >
-                              {categories.map((category) => (
-                                <option key={category}>{category}</option>
-                              ))}
-                            </select>
-                            <button
-                              className="edit-btn"
-                              onClick={() => openEditor(product)}
-                            >
-                              <Pencil size={15} /> Edit
-                            </button>
-                            <button
-                              className="delete-btn"
-                              onClick={() => removeProduct(product.id)}
-                              aria-label={`Hapus ${product.name}`}
-                            >
-                              <X size={16} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </>
                   )}
                 </div>
               </div>
@@ -1408,123 +3474,311 @@ function App() {
           </div>
         </div>
       )}
-      {isAdmin && editorOpen && (
-        <div className="editor-overlay">
-          <form className="product-editor" onSubmit={saveProduct}>
-            <div className="editor-head">
-              <div>
-                <p className="eyebrow">
-                  {editing ? "Edit katalog" : "Katalog baru"}
-                </p>
-                <h2>{editing ? "Ubah produk." : "Tambah produk."}</h2>
-              </div>
-              <button
-                type="button"
-                className="close-modal"
-                onClick={closeEditor}
-              >
-                <X />
-              </button>
-            </div>
-            <div className="editor-grid">
-              <label>
-                Nama produk
-                <input
-                  value={form.name}
-                  onChange={(event) =>
-                    setForm({ ...form, name: event.target.value })
-                  }
-                  required
-                  placeholder="Contoh: Meja Lipat Serbaguna"
-                />
-              </label>
-              <label>
-                Kategori
-                <select
-                  value={form.category}
-                  onChange={(event) =>
-                    setForm({ ...form, category: event.target.value })
+
+      {/* =====================================================
+          PRODUCT EDITOR
+      ====================================================== */}
+
+      {isAdmin &&
+        editorOpen && (
+          <div className="editor-overlay">
+            <form
+              className="product-editor"
+              onSubmit={
+                saveProduct
+              }
+            >
+              <div className="editor-head">
+                <div>
+                  <p className="eyebrow">
+                    {editing
+                      ? "Edit katalog"
+                      : "Katalog baru"}
+                  </p>
+
+                  <h2>
+                    {editing
+                      ? "Ubah produk."
+                      : "Tambah produk."}
+                  </h2>
+                </div>
+
+                <button
+                  type="button"
+                  className="close-modal"
+                  onClick={
+                    closeEditor
                   }
                 >
-                  {categories.map((category) => (
-                    <option key={category}>{category}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Harga ecer
+                  <X />
+                </button>
+              </div>
+
+              <div className="editor-grid">
+                <label>
+                  Nama produk
+
+                  <input
+                    value={form.name}
+                    onChange={(
+                      event,
+                    ) =>
+                      setForm(
+                        (
+                          current,
+                        ) => ({
+                          ...current,
+                          name: event
+                            .target
+                            .value,
+                        }),
+                      )
+                    }
+                    required
+                    placeholder="Contoh: Meja Lipat Serbaguna"
+                  />
+                </label>
+
+                <label>
+                  Kategori
+
+                  <select
+                    value={
+                      form.category
+                    }
+                    onChange={(
+                      event,
+                    ) =>
+                      setForm(
+                        (
+                          current,
+                        ) => ({
+                          ...current,
+                          category:
+                            event
+                              .target
+                              .value,
+                        }),
+                      )
+                    }
+                  >
+                    {categoryNames.map(
+                      (
+                        category,
+                      ) => (
+                        <option
+                          key={
+                            category
+                          }
+                        >
+                          {
+                            category
+                          }
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+
+                <label>
+                  Harga ecer
+
+                  <input
+                    value={
+                      form.retail
+                    }
+                    onChange={(
+                      event,
+                    ) =>
+                      setForm(
+                        (
+                          current,
+                        ) => ({
+                          ...current,
+                          retail:
+                            event
+                              .target
+                              .value,
+                        }),
+                      )
+                    }
+                    placeholder="Rp0"
+                  />
+                </label>
+
+                <label>
+                  Harga grosir
+
+                  <input
+                    value={
+                      form.wholesale
+                    }
+                    onChange={(
+                      event,
+                    ) =>
+                      setForm(
+                        (
+                          current,
+                        ) => ({
+                          ...current,
+                          wholesale:
+                            event
+                              .target
+                              .value,
+                        }),
+                      )
+                    }
+                    placeholder="Rp0"
+                  />
+                </label>
+
+                <label>
+                  Harga super grosir
+
+                  <input
+                    value={
+                      form.superWholesale
+                    }
+                    onChange={(
+                      event,
+                    ) =>
+                      setForm(
+                        (
+                          current,
+                        ) => ({
+                          ...current,
+                          superWholesale:
+                            event
+                              .target
+                              .value,
+                        }),
+                      )
+                    }
+                    placeholder="Rp0"
+                  />
+                </label>
+
+                <label>
+                  Label (opsional)
+
+                  <input
+                    value={
+                      form.badge ||
+                      ""
+                    }
+                    onChange={(
+                      event,
+                    ) =>
+                      setForm(
+                        (
+                          current,
+                        ) => ({
+                          ...current,
+                          badge:
+                            event
+                              .target
+                              .value,
+                        }),
+                      )
+                    }
+                    placeholder="Terlaris"
+                  />
+                </label>
+
+                <label className="description-field">
+                  Deskripsi singkat
+
+                  <textarea
+                    value={
+                      form.description ||
+                      ""
+                    }
+                    onChange={(
+                      event,
+                    ) =>
+                      setForm(
+                        (
+                          current,
+                        ) => ({
+                          ...current,
+                          description:
+                            event
+                              .target
+                              .value,
+                        }),
+                      )
+                    }
+                    placeholder="Contoh: Rak serbaguna untuk menyimpan barang di rumah."
+                  />
+                </label>
+              </div>
+
+              <label className="image-upload">
                 <input
-                  value={form.retail}
-                  onChange={(event) =>
-                    setForm({ ...form, retail: event.target.value })
+                  type="file"
+                  accept="image/*"
+                  onChange={
+                    uploadProductImage
                   }
-                  placeholder="Rp0"
-                />
-              </label>
-              <label>
-                Harga grosir
-                <input
-                  value={form.wholesale}
-                  onChange={(event) =>
-                    setForm({ ...form, wholesale: event.target.value })
+                  disabled={
+                    uploadingProductImage
                   }
-                  placeholder="Rp0"
                 />
+
+                <span>
+                  <ImagePlus
+                    size={22}
+                  />
+
+                  {uploadingProductImage
+                    ? "Mengupload gambar..."
+                    : form.image
+                      ? "Ganti gambar katalog"
+                      : "Upload gambar katalog"}
+                </span>
+
+                {form.image && (
+                  <img
+                    src={form.image}
+                    alt="Preview katalog"
+                  />
+                )}
               </label>
-              <label>
-                Harga super grosir
-                <input
-                  value={form.superWholesale}
-                  onChange={(event) =>
-                    setForm({ ...form, superWholesale: event.target.value })
-                  }
-                  placeholder="Rp0"
-                />
-              </label>
-              <label>
-                Label (opsional)
-                <input
-                  value={form.badge ?? ""}
-                  onChange={(event) =>
-                    setForm({ ...form, badge: event.target.value })
-                  }
-                  placeholder="Terlaris"
-                />
-              </label>
-              <label className="description-field">
-                Deskripsi singkat
-                <textarea
-                  value={form.description ?? ""}
-                  onChange={(event) =>
-                    setForm({ ...form, description: event.target.value })
-                  }
-                  placeholder="Contoh: Rak serbaguna untuk menyimpan barang di rumah."
-                />
-              </label>
-            </div>
-            <label className="image-upload">
-              <input type="file" accept="image/*" onChange={uploadImage} />
-              <span>
-                <ImagePlus size={22} />
-                {form.image ? "Ganti gambar katalog" : "Upload gambar katalog"}
-              </span>
-              {form.image && <img src={form.image} alt="Preview katalog" />}
-            </label>
-            <button className="primary-btn login-button">
-              Simpan katalog <ArrowRight size={17} />
-            </button>
-            {editing && (
+
               <button
-                type="button"
-                className="delete-product-editor"
-                onClick={removeEditingProduct}
+                className="primary-btn login-button"
+                disabled={
+                  savingProduct ||
+                  uploadingProductImage
+                }
               >
-                Hapus produk dari katalog
+                {savingProduct
+                  ? "Menyimpan..."
+                  : "Simpan katalog"}
+
+                {!savingProduct && (
+                  <ArrowRight
+                    size={17}
+                  />
+                )}
               </button>
-            )}
-          </form>
-        </div>
-      )}
+
+              {editing && (
+                <button
+                  type="button"
+                  className="delete-product-editor"
+                  onClick={() =>
+                    removeProduct(
+                      editing,
+                    )
+                  }
+                >
+                  Hapus produk dari katalog
+                </button>
+              )}
+            </form>
+          </div>
+        )}
     </main>
   );
 }
