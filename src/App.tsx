@@ -524,6 +524,18 @@ function App() {
       }
     });
 
+
+  // Hanya untuk keranjang halaman depan. Tidak memengaruhi Dashboard Admin.
+  const [cartOpen, setCartOpen] = useState(false);
+
+  useEffect(() => {
+    if (!cartOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setCartOpen(false);
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [cartOpen]);
   useEffect(() => {
     try {
       localStorage.setItem(
@@ -3790,25 +3802,11 @@ function App() {
 
           <div className="cart-bar">
             <div>
-              <strong>
-                {totalQuantity} pcs di
-                keranjang
-              </strong>
-
+              <strong>{totalQuantity} pcs di keranjang</strong>
               <span>
-                {cartItems.some(
-                  (p) =>
-                    (cart[
-                      p.id
-                    ] || 0) >= 36,
-                )
+                {cartItems.some((p) => (cart[p.id] || 0) >= 36)
                   ? "Harga super grosir aktif"
-                  : cartItems.some(
-                        (p) =>
-                          (cart[
-                            p.id
-                          ] || 0) >= 6,
-                      )
+                  : cartItems.some((p) => (cart[p.id] || 0) >= 6)
                     ? "Harga grosir aktif"
                     : "Tambah 6 pcs untuk harga grosir"}
               </span>
@@ -3817,38 +3815,263 @@ function App() {
             <strong>
               {formatRupiah(
                 cartItems.reduce(
-                  (
-                    sum,
-                    product,
-                  ) =>
-                    sum +
-                    getPrice(
-                      product,
-                      cart[
-                        product.id
-                      ],
-                    ) *
-                      cart[
-                        product.id
-                      ],
+                  (sum, product) =>
+                    sum + getPrice(product, cart[product.id]) * cart[product.id],
                   0,
                 ),
               )}
             </strong>
 
-            <button
-              className="primary-btn"
-              onClick={checkout}
-              disabled={
-                !cartItems.length
-              }
+            <div
+              style={{
+                display: "flex",
+                gap: "10px",
+                alignItems: "center",
+                flexWrap: "wrap",
+                justifyContent: "flex-end",
+              }}
             >
-              Checkout via WhatsApp{" "}
-              <MessageCircle
-                size={17}
-              />
-            </button>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => setCartOpen(true)}
+                disabled={!cartItems.length}
+              >
+                <Package size={17} /> Lihat barang ({cartItems.length})
+              </button>
+
+              <button
+                className="primary-btn"
+                onClick={checkout}
+                disabled={!cartItems.length}
+              >
+                Checkout via WhatsApp <MessageCircle size={17} />
+              </button>
+            </div>
           </div>
+
+          {cartOpen && (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="cart-detail-title"
+              onClick={(event) => {
+                if (event.target === event.currentTarget) setCartOpen(false);
+              }}
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 1000,
+                background: "rgba(15, 23, 20, 0.56)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "20px",
+              }}
+            >
+              <div
+                onClick={(event) => event.stopPropagation()}
+                style={{
+                  width: "min(680px, 100%)",
+                  maxHeight: "min(760px, 90vh)",
+                  background: "#fff",
+                  borderRadius: "18px",
+                  overflow: "hidden",
+                  boxShadow: "0 24px 80px rgba(0,0,0,0.22)",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    padding: "18px 20px",
+                    borderBottom: "1px solid #e5e7eb",
+                  }}
+                >
+                  <div>
+                    <h2 id="cart-detail-title" style={{ margin: 0, fontSize: "20px" }}>
+                      Barang yang Dipilih
+                    </h2>
+                    <p style={{ margin: "6px 0 0", color: "#6b7280", fontSize: "13px" }}>
+                      {cartItems.length} jenis barang · {totalQuantity} pcs
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setCartOpen(false)}
+                    aria-label="Tutup keranjang"
+                    style={{
+                      width: "38px",
+                      height: "38px",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "10px",
+                      background: "#fff",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <X size={19} />
+                  </button>
+                </div>
+
+                <div style={{ overflowY: "auto", padding: "4px 20px" }}>
+                  {cartItems.map((product) => {
+                    const quantity = cart[product.id] || 0;
+                    const unitPrice = getPrice(product, quantity);
+                    const subtotal = unitPrice * quantity;
+                    const tierLabel =
+                      quantity >= 36 ? "Super grosir" : quantity >= 6 ? "Grosir" : "Ecer";
+
+                    return (
+                      <div
+                        key={product.id}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "64px minmax(0, 1fr)",
+                          gap: "13px",
+                          padding: "15px 0",
+                          borderBottom: "1px solid #eef0ec",
+                        }}
+                      >
+                        <img
+                          src={product.image || getDefaultCategoryImage(product.category)}
+                          alt={product.name}
+                          style={{
+                            width: "64px",
+                            height: "64px",
+                            objectFit: "cover",
+                            borderRadius: "10px",
+                            background: "#f3f4f1",
+                          }}
+                        />
+
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
+                            <div style={{ minWidth: 0 }}>
+                              <strong style={{ display: "block", lineHeight: 1.35 }}>{product.name}</strong>
+                              {product.product_code && (
+                                <small style={{ display: "block", marginTop: "3px", color: "#69716b" }}>
+                                  Kode: {product.product_code}
+                                </small>
+                              )}
+                              <small style={{ display: "block", marginTop: "3px", color: "#69716b" }}>
+                                {tierLabel} · {formatRupiah(unitPrice)} / pcs
+                              </small>
+                            </div>
+                            <strong style={{ whiteSpace: "nowrap" }}>{formatRupiah(subtotal)}</strong>
+                          </div>
+
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: "12px",
+                              marginTop: "11px",
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => changeCartQuantity(product.id, 0)}
+                              style={{
+                                background: "transparent",
+                                color: "#a0523c",
+                                padding: "0",
+                                fontSize: "12px",
+                              }}
+                            >
+                              Hapus
+                            </button>
+
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                border: "1px solid #dce0d7",
+                                borderRadius: "10px",
+                                overflow: "hidden",
+                              }}
+                            >
+                              <button
+                                type="button"
+                                aria-label={`Kurangi ${product.name}`}
+                                onClick={() => changeCartQuantity(product.id, quantity - 1)}
+                                style={{ width: "36px", height: "34px", background: "#f5f3ee", fontSize: "18px" }}
+                              >
+                                −
+                              </button>
+                              <input
+                                type="number"
+                                min="0"
+                                value={quantity}
+                                aria-label={`Jumlah ${product.name}`}
+                                onChange={(event) => {
+                                  const value = Number(event.target.value);
+                                  changeCartQuantity(product.id, Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0);
+                                }}
+                                style={{
+                                  width: "48px",
+                                  height: "34px",
+                                  border: "0",
+                                  borderLeft: "1px solid #dce0d7",
+                                  borderRight: "1px solid #dce0d7",
+                                  textAlign: "center",
+                                  outline: "none",
+                                }}
+                              />
+                              <button
+                                type="button"
+                                aria-label={`Tambah ${product.name}`}
+                                onClick={() => changeCartQuantity(product.id, quantity + 1)}
+                                style={{ width: "36px", height: "34px", background: "#f5f3ee", fontSize: "18px" }}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div
+                  style={{
+                    padding: "16px 20px 20px",
+                    borderTop: "1px solid #e5e7eb",
+                    background: "#fafaf8",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", marginBottom: "12px" }}>
+                    <span>Total {totalQuantity} pcs</span>
+                    <strong>
+                      {formatRupiah(
+                        cartItems.reduce(
+                          (sum, product) => sum + getPrice(product, cart[product.id]) * cart[product.id],
+                          0,
+                        ),
+                      )}
+                    </strong>
+                  </div>
+                  <button
+                    className="primary-btn"
+                    onClick={checkout}
+                    disabled={!cartItems.length}
+                    style={{ width: "100%", justifyContent: "center" }}
+                  >
+                    Checkout via WhatsApp <MessageCircle size={17} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       </section>
 
