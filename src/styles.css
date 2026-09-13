@@ -2378,3 +2378,147 @@ em {
 .quantity-controls input[type="number"] {
   -moz-appearance: textfield;
 }
+/* =========================================================
+   PRODUCT DETAIL — MINIMALIS
+========================================================= */
+
+.product-detail-modal {
+  width: min(620px, calc(100vw - 32px));
+  max-width: 540px;
+  max-height: 56vh;
+
+  padding: 20px;
+  gap: 20px;
+
+  display: grid;
+  grid-template-columns: 220px 1fr;
+
+  box-sizing: border-box;
+}
+
+/* FOTO */
+.product-detail-modal > img {
+  width: 260px;
+  height: 260px;
+
+  object-fit: contain;
+  display: block;
+
+  border-radius: 6px;
+}
+
+/* INFORMASI */
+.product-detail-modal > div {
+  min-width: 0;
+  align-self: center;
+}
+
+/* KATEGORI */
+.product-detail-modal .product-category {
+  font-size: 10px;
+  margin-bottom: 5px;
+}
+
+/* NAMA */
+.product-detail-modal h2 {
+  font-size: 25px;
+  line-height: 1.15;
+  margin: 0 0 10px;
+}
+
+/* DESKRIPSI */
+.product-detail-modal .detail-description {
+  font-size: 12px;
+  line-height: 1.5;
+
+  margin: 0 0 14px;
+
+  max-width: 360px;
+  max-height: 70px;
+  overflow-y: auto;
+}
+
+/* HARGA */
+.product-detail-modal .detail-price {
+  padding: 10px 0;
+}
+
+.product-detail-modal .detail-price span {
+  font-size: 10px;
+}
+
+.product-detail-modal .detail-price strong {
+  font-size: 21px;
+}
+
+/* JUMLAH */
+.product-detail-modal .detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* =========================================================
+   TABLET
+========================================================= */
+
+@media (max-width: 650px) {
+
+  .product-detail-modal {
+    width: calc(100vw - 24px);
+    max-height: 85vh;
+
+    padding: 16px;
+    gap: 16px;
+
+    grid-template-columns: 180px 1fr;
+  }
+
+  .product-detail-modal > img {
+    width: 180px;
+    height: 180px;
+  }
+
+  .product-detail-modal h2 {
+    font-size: 21px;
+  }
+
+  .product-detail-modal .detail-description {
+    font-size: 11px;
+    max-height: 60px;
+  }
+
+  .product-detail-modal .detail-price strong {
+    font-size: 19px;
+  }
+}
+
+/* =========================================================
+   HP
+========================================================= */
+
+@media (max-width: 480px) {
+
+  .product-detail-modal {
+    width: calc(100vw - 20px);
+    max-height: 88vh;
+
+    padding: 14px;
+    gap: 12px;
+
+    grid-template-columns: 1fr;
+  }
+
+  .product-detail-modal > img {
+    width: 100%;
+    height: 180px;
+  }
+
+  .product-detail-modal h2 {
+    font-size: 20px;
+  }
+
+  .product-detail-modal .detail-description {
+    max-height: 60px;
+  }
+}
