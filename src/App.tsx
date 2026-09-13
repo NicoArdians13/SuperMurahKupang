@@ -3065,7 +3065,31 @@ function App() {
           const codeKey = product.product_code.toLowerCase();
           const nameKey = normalizeProductName(product.name);
           const existing = (codeKey && existingByCode.get(codeKey)) || existingByName.get(nameKey);
-          const payload = {
+          /*
+           * PENTING:
+           * Jika barang dengan kode atau nama yang sama sudah ada,
+           * kategori dan foto LAMA HARUS DIPERTAHANKAN.
+           * Excel hanya boleh memperbarui data harga dan data teks
+           * yang memang diimpor, tanpa mengosongkan/mengganti foto
+           * dan kategori yang sudah tersimpan di katalog.
+           */
+          const updatePayload = {
+            product_code: product.product_code || existing?.product_code || null,
+            name: product.name || existing?.name,
+            retail: product.retail,
+            wholesale: product.wholesale,
+            super_wholesale: product.super_wholesale,
+            badge: product.badge || existing?.badge || null,
+            description: product.description || existing?.description || null,
+            updated_at: new Date().toISOString(),
+          };
+
+          /*
+           * Untuk barang BARU, kategori dan foto dari Excel tetap dipakai.
+           * Untuk barang LAMA, category/image sengaja TIDAK dimasukkan
+           * ke updatePayload, sehingga Supabase tidak akan mengubahnya.
+           */
+          const insertPayload = {
             product_code: product.product_code || null,
             name: product.name,
             category: product.category,
@@ -3079,8 +3103,17 @@ function App() {
           };
 
           const result = existing
-            ? await supabase.from("products").update(payload).eq("id", existing.id).select().single()
-            : await supabase.from("products").insert(payload).select().single();
+            ? await supabase
+                .from("products")
+                .update(updatePayload)
+                .eq("id", existing.id)
+                .select()
+                .single()
+            : await supabase
+                .from("products")
+                .insert(insertPayload)
+                .select()
+                .single();
 
           if (result.error || !result.data) {
             failedCount += 1;
