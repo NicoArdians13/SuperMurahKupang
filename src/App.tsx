@@ -1688,52 +1688,47 @@ function App() {
   };
 
   const createReceiptBlob = async (order: StoreOrder) => {
-    // PNG mengikuti ukuran kertas nota saja, tanpa area luar/modal.
-    const width = 760;
-    const padding = 48;
-    const headerHeight = 198;
-    const tableTop = 224;
-    const rowHeight = 34;
-    const footerHeight = 145;
-    const height = tableTop + 34 + order.items.length * rowHeight + footerHeight;
+    const width = 900;
+    const padding = 54;
+    const headerHeight = 180;
+    const tableTop = 210;
+    const headerRowHeight = 42;
+    const rowHeight = 42;
+    const footerHeight = 150;
+    const height = tableTop + headerRowHeight + order.items.length * rowHeight + footerHeight;
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext("2d");
     if (!context) return null;
 
-    // Sama seperti receipt-paper: bidang gambar putih bersih.
+    // Kertas nota putih, sama seperti tampilan preview.
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, width, height);
 
     // Logo toko di pojok kanan atas.
-    // Gambar dimuat terlebih dahulu supaya ikut masuk ke PNG hasil download/salin.
-    const loadLogo = () =>
-      new Promise<HTMLImageElement | null>((resolve) => {
-        const image = new Image();
-        image.onload = () => resolve(image);
-        image.onerror = () => resolve(null);
-        image.src = storeLogo;
-      });
+    // Rasio asli dipertahankan agar logo tidak gepeng.
+    const logoImage = await new Promise<HTMLImageElement | null>((resolve) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => resolve(null);
+      image.src = storeLogo;
+    });
 
-    const logoImage = await loadLogo();
     if (logoImage) {
-      // Pertahankan rasio asli logo agar tidak gepeng.
-      const maxLogoWidth = 86;
-      const maxLogoHeight = 50;
-      const scale = Math.min(
+      const maxLogoWidth = 250;
+      const maxLogoHeight = 200;
+      const ratio = Math.min(
         maxLogoWidth / logoImage.naturalWidth,
         maxLogoHeight / logoImage.naturalHeight,
         1,
       );
-      const logoWidth = logoImage.naturalWidth * scale;
-      const logoHeight = logoImage.naturalHeight * scale;
-      const logoX = width - padding - logoWidth;
-      const logoY = 28;
+      const logoWidth = Math.max(1, logoImage.naturalWidth * ratio);
+      const logoHeight = Math.max(1, logoImage.naturalHeight * ratio);
       context.drawImage(
         logoImage,
-        logoX,
-        logoY,
+        width - padding - logoWidth,
+        24,
         logoWidth,
         logoHeight,
       );
@@ -1741,14 +1736,20 @@ function App() {
 
     // Header
     context.fillStyle = "#26332c";
-    context.font = "700 30px DM Sans, sans-serif";
-    context.fillText("SUPER MURAH KUPANG", padding, 55);
+    context.font = "700 32px DM Sans, sans-serif";
+    context.textAlign = "left";
+    context.fillText("SUPER MURAH KUPANG", padding, 50);
     context.font = "16px DM Sans, sans-serif";
+    context.fillStyle = "#c86743";
+    context.fillText("NOTA PESANAN TOKO", padding, 80);
     context.fillStyle = "#69716b";
-    context.fillText("NOTA PESANAN TOKO", padding, 84);
-    context.fillText(`No. ${order.id}`, padding, 125);
-    context.fillText(`Toko: ${order.storeName}`, padding, 151);
-    context.fillText(`Tanggal: ${new Date(`${order.orderDate}T00:00:00`).toLocaleDateString("id-ID")}`, padding, 177);
+    context.fillText(`No. ${order.id}`, padding, 122);
+    context.fillText(`Toko: ${order.storeName}`, padding, 149);
+    context.fillText(
+      `Tanggal: ${new Date(`${order.orderDate}T00:00:00`).toLocaleDateString("id-ID")}`,
+      padding,
+      176,
+    );
 
     context.strokeStyle = "#dce0d7";
     context.lineWidth = 1;
@@ -1757,24 +1758,23 @@ function App() {
     context.lineTo(width - padding, headerHeight);
     context.stroke();
 
-    // Table geometry
+    // Tabel: Kode | Nama Barang | Qty | Harga Satuan | Total Harga
     const tableX = padding;
     const tableWidth = width - padding * 2;
     const codeWidth = 120;
-    const nameWidth = 330;
-    const qtyWidth = 70;
-    const totalWidth = tableWidth - codeWidth - nameWidth - qtyWidth;
-    const tableBottom = tableTop + 34 + order.items.length * rowHeight;
+    const nameWidth = 320;
+    const qtyWidth = 75;
+    const unitPriceWidth = 150;
+    const totalWidth = tableWidth - codeWidth - nameWidth - qtyWidth - unitPriceWidth;
+    const tableBottom = tableTop + headerRowHeight + order.items.length * rowHeight;
 
-    // Very subtle table header
     context.fillStyle = "#eef0e9";
-    context.fillRect(tableX, tableTop, tableWidth, 34);
+    context.fillRect(tableX, tableTop, tableWidth, headerRowHeight);
 
     context.strokeStyle = "#dce0d7";
     context.lineWidth = 1;
     context.strokeRect(tableX, tableTop, tableWidth, tableBottom - tableTop);
 
-    // Vertical lines
     let x = tableX + codeWidth;
     context.beginPath();
     context.moveTo(x, tableTop);
@@ -1785,32 +1785,45 @@ function App() {
     x += qtyWidth;
     context.moveTo(x, tableTop);
     context.lineTo(x, tableBottom);
+    x += unitPriceWidth;
+    context.moveTo(x, tableTop);
+    context.lineTo(x, tableBottom);
     context.stroke();
 
-    // Header labels
     context.fillStyle = "#526057";
     context.font = "600 13px DM Sans, sans-serif";
     context.textAlign = "left";
-    context.fillText("KODE", tableX + 10, tableTop + 22);
-    context.fillText("NAMA BARANG", tableX + codeWidth + 10, tableTop + 22);
+    context.fillText("KODE", tableX + 10, tableTop + 27);
+    context.fillText("NAMA BARANG", tableX + codeWidth + 10, tableTop + 27);
     context.textAlign = "center";
-    context.fillText("QTY", tableX + codeWidth + nameWidth + qtyWidth / 2, tableTop + 22);
+    context.fillText(
+      "QTY",
+      tableX + codeWidth + nameWidth + qtyWidth / 2,
+      tableTop + 27,
+    );
     context.textAlign = "right";
-    context.fillText("TOTAL HARGA", tableX + tableWidth - 10, tableTop + 22);
+    context.fillText(
+      "HARGA SATUAN",
+      tableX + codeWidth + nameWidth + qtyWidth + unitPriceWidth - 10,
+      tableTop + 27,
+    );
+    context.fillText("TOTAL HARGA", tableX + tableWidth - 10, tableTop + 27);
 
     const truncateText = (value: string, maxWidth: number) => {
       if (context.measureText(value).width <= maxWidth) return value;
       let result = value;
-      while (result.length > 0 && context.measureText(`${result}…`).width > maxWidth) {
+      while (
+        result.length > 0 &&
+        context.measureText(`${result}…`).width > maxWidth
+      ) {
         result = result.slice(0, -1);
       }
       return `${result}…`;
     };
 
-    // Table rows
     order.items.forEach((item, index) => {
-      const y = tableTop + 34 + index * rowHeight;
-      const baseline = y + 22;
+      const y = tableTop + headerRowHeight + index * rowHeight;
+      const baseline = y + 27;
 
       if (index % 2 === 1) {
         context.fillStyle = "#faf9f4";
@@ -1849,6 +1862,13 @@ function App() {
       );
 
       context.textAlign = "right";
+      context.fillStyle = "#526057";
+      context.fillText(
+        formatRupiah(item.price),
+        tableX + codeWidth + nameWidth + qtyWidth + unitPriceWidth - 10,
+        baseline,
+      );
+      context.fillStyle = "#26332c";
       context.fillText(
         formatRupiah(item.price * item.quantity),
         tableX + tableWidth - 10,
@@ -1856,7 +1876,6 @@ function App() {
       );
     });
 
-    // Total keseluruhan
     const totalTop = tableBottom + 24;
     context.strokeStyle = "#dce0d7";
     context.beginPath();
@@ -1869,7 +1888,6 @@ function App() {
     context.textAlign = "left";
     context.fillText("TOTAL KESELURUHAN", tableX, totalTop + 35);
     context.textAlign = "right";
-    context.font = "700 20px DM Sans, sans-serif";
     context.fillText(
       formatRupiah(orderTotal(order)),
       tableX + tableWidth,
@@ -1886,7 +1904,9 @@ function App() {
     );
 
     context.textAlign = "left";
-    return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    return new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/png"),
+    );
   };
 
   const downloadReceipt = async (order: StoreOrder) => {
@@ -3065,31 +3085,7 @@ function App() {
           const codeKey = product.product_code.toLowerCase();
           const nameKey = normalizeProductName(product.name);
           const existing = (codeKey && existingByCode.get(codeKey)) || existingByName.get(nameKey);
-          /*
-           * PENTING:
-           * Jika barang dengan kode atau nama yang sama sudah ada,
-           * kategori dan foto LAMA HARUS DIPERTAHANKAN.
-           * Excel hanya boleh memperbarui data harga dan data teks
-           * yang memang diimpor, tanpa mengosongkan/mengganti foto
-           * dan kategori yang sudah tersimpan di katalog.
-           */
-          const updatePayload = {
-            product_code: product.product_code || existing?.product_code || null,
-            name: product.name || existing?.name,
-            retail: product.retail,
-            wholesale: product.wholesale,
-            super_wholesale: product.super_wholesale,
-            badge: product.badge || existing?.badge || null,
-            description: product.description || existing?.description || null,
-            updated_at: new Date().toISOString(),
-          };
-
-          /*
-           * Untuk barang BARU, kategori dan foto dari Excel tetap dipakai.
-           * Untuk barang LAMA, category/image sengaja TIDAK dimasukkan
-           * ke updatePayload, sehingga Supabase tidak akan mengubahnya.
-           */
-          const insertPayload = {
+          const payload = {
             product_code: product.product_code || null,
             name: product.name,
             category: product.category,
@@ -3103,17 +3099,8 @@ function App() {
           };
 
           const result = existing
-            ? await supabase
-                .from("products")
-                .update(updatePayload)
-                .eq("id", existing.id)
-                .select()
-                .single()
-            : await supabase
-                .from("products")
-                .insert(insertPayload)
-                .select()
-                .single();
+            ? await supabase.from("products").update(payload).eq("id", existing.id).select().single()
+            : await supabase.from("products").insert(payload).select().single();
 
           if (result.error || !result.data) {
             failedCount += 1;
@@ -5673,33 +5660,38 @@ function App() {
             <div
               className="receipt-paper"
               id="receipt-preview"
-              style={{ position: "relative" }}
+              style={{ position: "relative", background: "#ffffff" }}
             >
               <img
                 src={storeLogo}
                 alt="Logo SUPER MURAH KUPANG"
                 style={{
                   position: "absolute",
-                  top: 20,
-                  right: 22,
-                  width: 86,
-                  height: 86,
+                  top: -16,
+                  right: -36,
+                  width: 220,
+                  height: "auto",
+                  maxHeight: 80,
                   objectFit: "contain",
                 }}
               />
               <div className="receipt-brand">SUPER MURAH KUPANG</div>
               <p className="receipt-label">NOTA PESANAN TOKO</p>
-              <div className="receipt-meta"><span>No. {selectedReceipt.id}</span><span>{new Date(`${selectedReceipt.orderDate}T00:00:00`).toLocaleDateString("id-ID")}</span></div>
+              <div className="receipt-meta">
+                <span>No. {selectedReceipt.id}</span>
+                <span>{new Date(`${selectedReceipt.orderDate}T00:00:00`).toLocaleDateString("id-ID")}</span>
+              </div>
               <strong className="receipt-store">{selectedReceipt.storeName}</strong>
 
               <div style={{ marginTop: 22, border: "1px solid #dce0d7", borderRadius: 10, overflow: "hidden", background: "#fbfaf6" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: "#eef0e9", color: "#526057" }}>
-                      <th style={{ width: "22%", padding: "10px 9px", textAlign: "left", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Kode</th>
-                      <th style={{ width: "42%", padding: "10px 9px", textAlign: "left", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Nama Barang</th>
-                      <th style={{ width: "12%", padding: "10px 7px", textAlign: "center", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Qty</th>
-                      <th style={{ width: "24%", padding: "10px 9px", textAlign: "right", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Total Harga</th>
+                      <th style={{ width: "18%", padding: "10px 9px", textAlign: "left", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Kode</th>
+                      <th style={{ width: "34%", padding: "10px 9px", textAlign: "left", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Nama Barang</th>
+                      <th style={{ width: "10%", padding: "10px 7px", textAlign: "center", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Qty</th>
+                      <th style={{ width: "18%", padding: "10px 9px", textAlign: "right", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Harga Satuan</th>
+                      <th style={{ width: "20%", padding: "10px 9px", textAlign: "right", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Total Harga</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -5708,13 +5700,14 @@ function App() {
                         <td style={{ padding: "10px 9px", color: "#69716b", borderBottom: "1px solid #e7e8e2", verticalAlign: "top", wordBreak: "break-word" }}>{item.code || "-"}</td>
                         <td style={{ padding: "10px 9px", color: "#26332c", fontWeight: 600, borderBottom: "1px solid #e7e8e2", verticalAlign: "top", wordBreak: "break-word" }}>{item.productName}</td>
                         <td style={{ padding: "10px 7px", color: "#526057", fontWeight: 600, textAlign: "center", borderBottom: "1px solid #e7e8e2", verticalAlign: "top" }}>{item.quantity}</td>
+                        <td style={{ padding: "10px 9px", color: "#526057", fontWeight: 600, textAlign: "right", borderBottom: "1px solid #e7e8e2", verticalAlign: "top", whiteSpace: "nowrap" }}>{formatRupiah(item.price)}</td>
                         <td style={{ padding: "10px 9px", color: "#26332c", fontWeight: 600, textAlign: "right", borderBottom: "1px solid #e7e8e2", verticalAlign: "top", whiteSpace: "nowrap" }}>{formatRupiah(item.price * item.quantity)}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
                     <tr>
-                      <td colSpan={3} style={{ padding: "13px 9px", color: "#526057", fontWeight: 600, borderTop: "1px solid #dce0d7" }}>Total Keseluruhan</td>
+                      <td colSpan={4} style={{ padding: "13px 9px", color: "#526057", fontWeight: 600, borderTop: "1px solid #dce0d7" }}>Total Keseluruhan</td>
                       <td style={{ padding: "13px 9px", color: "#26332c", fontWeight: 700, textAlign: "right", borderTop: "1px solid #dce0d7", whiteSpace: "nowrap" }}>{formatRupiah(orderTotal(selectedReceipt))}</td>
                     </tr>
                   </tfoot>

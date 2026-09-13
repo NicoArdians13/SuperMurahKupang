@@ -874,7 +874,7 @@ em {
 .order-pagination { display: flex; justify-content: center; align-items: center; gap: 15px; padding-top: 15px; color: var(--muted); font-size: 10px; }
 .order-pagination button { background: var(--sage); color: var(--ink); padding: 8px 10px; font-size: 10px; }
 .order-pagination button:disabled { opacity: .45; cursor: not-allowed; }
-.receipt-modal { width: min(520px, 100%); background: var(--cream); padding: 25px; box-shadow: 0 20px 80px #17231a40; }
+.receipt-modal { width: min(660px, 100%); background: var(--cream); padding: 25px; box-shadow: 0 20px 80px #17231a40; }
 .receipt-paper { background: white; padding: 28px; color: var(--ink); box-shadow: 0 3px 0 #d9ddd4; }
 .receipt-brand { font-size: 21px; font-weight: 700; letter-spacing: -.04em; }
 .receipt-label { color: var(--terracotta); font-size: 10px; letter-spacing: .12em; margin: 5px 0 18px; }
@@ -2507,7 +2507,7 @@ em {
     gap: 12px;
 
     grid-template-columns: 1fr;
-  }
+  } 
 
   .product-detail-modal > img {
     width: 100%;
