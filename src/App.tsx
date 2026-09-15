@@ -41,7 +41,6 @@ type Category = {
 
 type Product = {
   id: number;
-  product_code?: string | null;
   name: string;
   category: string;
   image: string;
@@ -61,7 +60,6 @@ type Promotion = {
 type AdminSection = "catalog" | "promotion" | "categories" | "orders";
 
 type OrderItem = {
-  id?: string;
   productId: number | null;
   code: string;
   productName: string;
@@ -69,76 +67,14 @@ type OrderItem = {
   price: number;
 };
 
-type Customer = {
-  id: string;
-  name: string;
-  whatsapp: string;
-  address: string;
-  notes: string;
-  createdAt: string;
-  updatedAt?: string;
-};
-
-type PaymentMethod = "cash" | "transfer" | "qris" | "debit" | "piutang";
-type PaymentStatus = "lunas" | "dp" | "belum_bayar" | "piutang";
-
 type StoreOrder = {
   id: string;
-  databaseId?: string;
   storeName: string;
-  customerId?: string | null;
   orderDate: string;
   items: OrderItem[];
   createdAt: string;
   deliveryStatus: "ambil_sendiri" | "diantar" | "belum_diantar";
-  paymentMethod: PaymentMethod;
-  paymentStatus: PaymentStatus;
-  dueDate: string;
-  notes: string;
 };
-
-const paymentMethodLabels: Record<PaymentMethod, string> = {
-  cash: "Cash",
-  transfer: "Transfer",
-  qris: "QRIS",
-  debit: "Debit",
-  piutang: "Piutang",
-};
-
-const paymentStatusLabels: Record<PaymentStatus, string> = {
-  lunas: "Lunas",
-  dp: "DP",
-  belum_bayar: "Belum bayar",
-  piutang: "Piutang",
-};
-
-const normalizeOrderItem = (item: any): OrderItem => ({
-  id: item?.id ? String(item.id) : undefined,
-  productId: item?.product_id === null || item?.product_id === undefined
-    ? item?.productId === null || item?.productId === undefined ? null : Number(item.productId)
-    : Number(item.product_id),
-  code: String(item?.product_code ?? item?.code ?? "").trim(),
-  productName: String(item?.product_name ?? item?.productName ?? "").trim(),
-  quantity: Math.max(0, Number(item?.quantity ?? 0)),
-  price: Math.max(0, Number(item?.unit_price ?? item?.price ?? 0)),
-});
-
-const normalizeStoreOrder = (row: any): StoreOrder => ({
-  id: String(row?.order_number ?? row?.id ?? `TRX-${Date.now().toString(36).toUpperCase()}`),
-  databaseId: row?.id ? String(row.id) : undefined,
-  storeName: String(row?.store_name ?? row?.customer?.name ?? row?.storeName ?? "").trim(),
-  customerId: row?.customer_id ? String(row.customer_id) : null,
-  orderDate: String(row?.order_date ?? row?.orderDate ?? localDateString()).slice(0, 10),
-  items: Array.isArray(row?.order_items)
-    ? row.order_items.map(normalizeOrderItem)
-    : Array.isArray(row?.items) ? row.items.map(normalizeOrderItem) : [],
-  createdAt: String(row?.created_at ?? row?.createdAt ?? new Date().toISOString()),
-  deliveryStatus: row?.delivery_status ?? row?.deliveryStatus ?? "belum_diantar",
-  paymentMethod: row?.payment_method ?? "cash",
-  paymentStatus: row?.payment_status ?? "belum_bayar",
-  dueDate: String(row?.due_date ?? "").slice(0, 10),
-  notes: String(row?.notes ?? "").trim(),
-});
 
 /* =========================================================
    DEFAULT CATEGORY
@@ -172,7 +108,6 @@ const defaultCategories: { label: string; image: string }[] = [
 ========================================================= */
 
 const emptyProduct: Omit<Product, "id"> = {
-  product_code: "",
   name: "",
   category: "Dapur",
   retail: "",
@@ -211,11 +146,6 @@ const normalizeProduct = (product: any): Product => ({
   id: Number.isFinite(Number(product?.id))
     ? Number(product.id)
     : 0,
-
-  product_code:
-    product?.product_code === null || product?.product_code === undefined
-      ? ""
-      : String(product.product_code).trim(),
 
   name: String(product?.name ?? "").trim(),
 
@@ -437,25 +367,13 @@ function App() {
   const [orders, setOrders] = useState<StoreOrder[]>(() => {
     try {
       const saved = localStorage.getItem("supermurah_store_orders");
-      return saved ? JSON.parse(saved).map(normalizeStoreOrder) : [];
+      return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
   });
 
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [customersLoading, setCustomersLoading] = useState(false);
-  const [ordersLoading, setOrdersLoading] = useState(false);
-  const [savingOrder, setSavingOrder] = useState(false);
-  const [orderError, setOrderError] = useState("");
   const [orderStoreName, setOrderStoreName] = useState("");
-  const [selectedCustomerId, setSelectedCustomerId] = useState("");
-  const [customerSearch, setCustomerSearch] = useState("");
-  const [newCustomerOpen, setNewCustomerOpen] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: "", whatsapp: "", address: "", notes: "" });
-  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-  const [customerEditor, setCustomerEditor] = useState({ name: "", whatsapp: "", address: "", notes: "" });
-  const [savingCustomer, setSavingCustomer] = useState(false);
   const [orderDate, setOrderDate] = useState(localDateString());
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [orderProductId, setOrderProductId] = useState("");
@@ -469,11 +387,6 @@ function App() {
   const [selectedReceipt, setSelectedReceipt] = useState<StoreOrder | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [orderPage, setOrderPage] = useState(1);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
-  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("belum_bayar");
-  const [dueDate, setDueDate] = useState("");
-  const [orderNotes, setOrderNotes] = useState("");
-  const [bestSellerPeriod, setBestSellerPeriod] = useState<"today" | "7days" | "month" | "custom">("today");
   const ordersPerPage = 5;
 
   const [selectedProduct, setSelectedProduct] =
@@ -502,9 +415,6 @@ function App() {
   /* =======================================================
      CART
   ======================================================= */
-
-  const [cartOpen, setCartOpen] =
-    useState(false);
 
   const [cart, setCart] =
     useState<Record<number, number>>(() => {
@@ -733,18 +643,17 @@ function App() {
     setProductsError("");
 
     try {
-      const pageSize = 1000;
-      let from = 0;
-      let allProducts: any[] = [];
+      const {
+        data,
+        error,
+      } = await supabase
+        .from("products")
+        .select("*")
+        .order("id", {
+          ascending: true,
+        });
 
-      while (true) {
-        const { data, error } = await supabase
-          .from("products")
-          .select("*")
-          .order("id", { ascending: true })
-          .range(from, from + pageSize - 1);
-
-        if (error) {
+      if (error) {
         console.error(
           "Gagal mengambil products dari Supabase:",
           error,
@@ -755,17 +664,13 @@ function App() {
             "Gagal memuat katalog produk.",
         );
 
-          setProducts([]);
-          return;
-        }
+        setProducts([]);
 
-        allProducts = allProducts.concat(data ?? []);
-        if (!data || data.length < pageSize) break;
-        from += pageSize;
+        return;
       }
 
       const normalizedProducts =
-        allProducts
+        (data ?? [])
           .map(normalizeProduct)
           .filter(
             (product) =>
@@ -884,81 +789,6 @@ function App() {
     }
   };
 
-  const loadCustomers = async () => {
-    setCustomersLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("customers")
-        .select("id, name, whatsapp, address, notes, created_at, updated_at")
-        .order("name", { ascending: true });
-
-      if (error) {
-        if (!/relation .*customers.* does not exist|could not find the table/i.test(error.message)) {
-          console.error("Gagal memuat customer:", error);
-        }
-        return;
-      }
-
-      setCustomers((data ?? []).map((customer: any) => ({
-        id: String(customer.id),
-        name: String(customer.name ?? "").trim(),
-        whatsapp: String(customer.whatsapp ?? "").trim(),
-        address: String(customer.address ?? "").trim(),
-        notes: String(customer.notes ?? "").trim(),
-        createdAt: String(customer.created_at ?? new Date().toISOString()),
-        updatedAt: String(customer.updated_at ?? customer.created_at ?? new Date().toISOString()),
-      })));
-    } catch (error: any) {
-      setOrderError(error?.message || "Gagal memuat toko.");
-    } finally {
-      setCustomersLoading(false);
-    }
-  };
-
-  const loadOrders = async () => {
-    setOrdersLoading(true);
-    setOrderError("");
-    try {
-      const { data, error } = await supabase
-        .from("orders")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        if (!/relation .*orders.* does not exist|could not find the table/i.test(error.message)) {
-          setOrderError(error.message);
-        }
-        return;
-      }
-
-      const normalized = (data ?? []).map(normalizeStoreOrder);
-      const itemIds = normalized.map((order) => order.databaseId).filter(Boolean);
-      if (itemIds.length) {
-        const { data: itemRows, error: itemError } = await supabase
-          .from("order_items")
-          .select("*")
-          .in("order_id", itemIds);
-        if (itemError) throw itemError;
-        const itemsByOrder = new Map<string, OrderItem[]>();
-        (itemRows ?? []).forEach((item: any) => {
-          const orderId = String(item.order_id);
-          itemsByOrder.set(orderId, [...(itemsByOrder.get(orderId) ?? []), normalizeOrderItem(item)]);
-        });
-        normalized.forEach((order) => {
-          if (order.databaseId && itemsByOrder.has(order.databaseId)) {
-            order.items = itemsByOrder.get(order.databaseId) ?? [];
-          }
-        });
-      }
-      setOrders(normalized);
-      localStorage.setItem("supermurah_store_orders", JSON.stringify(normalized));
-    } catch (error: any) {
-      setOrderError(error?.message || "Gagal memuat pesanan.");
-    } finally {
-      setOrdersLoading(false);
-    }
-  };
-
   /* =======================================================
      INITIAL LOAD
   ======================================================= */
@@ -967,8 +797,6 @@ function App() {
     loadProducts();
     loadCategories();
     loadPromotions();
-    loadCustomers();
-    loadOrders();
   }, []);
 
   /* =======================================================
@@ -1214,7 +1042,7 @@ function App() {
 
       return products.filter(
         (product) =>
-          `${product.name} ${product.product_code ?? ""} ${product.category} ${product.description ?? ""}`
+          `${product.name} ${product.category} ${product.description ?? ""}`
             .toLowerCase()
             .includes(keyword),
       );
@@ -1295,14 +1123,14 @@ function App() {
     if (keyword.length < 2) return [];
 
     return products
-      .filter((product) => `${product.name} ${product.product_code ?? ""} ${product.category}`.toLowerCase().includes(keyword))
+      .filter((product) => `${product.name} ${product.category} SKU-${product.id}`.toLowerCase().includes(keyword))
       .slice(0, 8);
   }, [products, orderProductSearch]);
 
   useEffect(() => {
     if (!selectedOrderProduct) return;
 
-    setOrderCode(selectedOrderProduct.product_code ?? "");
+    setOrderCode(`SKU-${selectedOrderProduct.id}`);
     setOrderPrice(String(getPrice(selectedOrderProduct, Number(orderQuantity) || 1)));
   }, [orderProductId, orderQuantity, products]);
 
@@ -1321,36 +1149,6 @@ function App() {
     }),
     [orders, orderSearch, orderStartDate, orderEndDate],
   );
-
-  const customerMatches = useMemo(() => {
-    const keyword = customerSearch.trim().toLowerCase();
-    if (!keyword) return customers.slice(0, 6);
-    return customers.filter((customer) => `${customer.name} ${customer.whatsapp} ${customer.address}`.toLowerCase().includes(keyword)).slice(0, 6);
-  }, [customers, customerSearch]);
-
-  const bestSellerDates = useMemo(() => {
-    const today = localDateString();
-    if (bestSellerPeriod === "today") return { start: today, end: today };
-    if (bestSellerPeriod === "7days") return { start: localDateString(new Date(Date.now() - 6 * 86400000)), end: today };
-    if (bestSellerPeriod === "month") {
-      const date = new Date();
-      date.setDate(1);
-      return { start: localDateString(date), end: today };
-    }
-    return { start: orderStartDate, end: orderEndDate };
-  }, [bestSellerPeriod, orderStartDate, orderEndDate]);
-
-  const bestSellers = useMemo(() => {
-    const totals = new Map<string, number>();
-    orders
-      .filter((order) => order.orderDate >= bestSellerDates.start && order.orderDate <= bestSellerDates.end)
-      .flatMap((order) => order.items)
-      .forEach((item) => totals.set(item.productName, (totals.get(item.productName) ?? 0) + item.quantity));
-    return Array.from(totals.entries())
-      .map(([name, quantity]) => ({ name, quantity }))
-      .sort((left, right) => right.quantity - left.quantity)
-      .slice(0, 5);
-  }, [orders, bestSellerDates]);
 
   const totalOrderPages = Math.max(1, Math.ceil(filteredOrders.length / ordersPerPage));
   const paginatedOrders = filteredOrders.slice(
@@ -1387,110 +1185,17 @@ function App() {
     localStorage.setItem("supermurah_store_orders", JSON.stringify(nextOrders));
   };
 
-  const createCustomer = async () => {
-    if (!newCustomer.name.trim()) {
-      alert("Nama toko wajib diisi.");
-      return;
-    }
-    const { data, error } = await supabase.from("customers").insert({
-      name: newCustomer.name.trim(),
-      whatsapp: newCustomer.whatsapp.trim() || null,
-      address: newCustomer.address.trim() || null,
-      notes: newCustomer.notes.trim() || null,
-    }).select("id, name, whatsapp, address, notes, created_at").single();
-    if (error || !data) {
-      setOrderError(error?.message || "Customer belum berhasil disimpan.");
-      alert(error?.message || "Customer belum berhasil disimpan.");
-      return;
-    }
-    const customer: Customer = {
-      id: String(data.id),
-      name: String(data.name ?? "").trim(),
-      whatsapp: String(data.whatsapp ?? "").trim(),
-      address: String(data.address ?? "").trim(),
-      notes: String(data.notes ?? "").trim(),
-      createdAt: String(data.created_at ?? new Date().toISOString()),
-    };
-    setCustomers((items) => [...items, customer].sort((left, right) => left.name.localeCompare(right.name)));
-    setSelectedCustomerId(customer.id);
-    setOrderStoreName(customer.name);
-    setCustomerSearch(customer.name);
-    setNewCustomer({ name: "", whatsapp: "", address: "", notes: "" });
-    setNewCustomerOpen(false);
-  };
-
-  const openCustomerEditor = (customer: Customer) => {
-    setEditingCustomer(customer);
-    setCustomerEditor({
-      name: customer.name,
-      whatsapp: customer.whatsapp,
-      address: customer.address,
-      notes: customer.notes,
-    });
-  };
-
-  const updateCustomer = async () => {
-    if (!editingCustomer || !customerEditor.name.trim() || savingCustomer) return;
-    setSavingCustomer(true);
-    setOrderError("");
-    try {
-      const { data, error } = await supabase
-        .from("customers")
-        .update({
-          name: customerEditor.name.trim(),
-          whatsapp: customerEditor.whatsapp.trim() || null,
-          address: customerEditor.address.trim() || null,
-          notes: customerEditor.notes.trim() || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", editingCustomer.id)
-        .select("id, name, whatsapp, address, notes, created_at, updated_at")
-        .single();
-
-      if (error || !data) throw new Error(error?.message || "Toko belum berhasil diperbarui.");
-
-      const updated: Customer = {
-        id: String(data.id),
-        name: String(data.name ?? "").trim(),
-        whatsapp: String(data.whatsapp ?? "").trim(),
-        address: String(data.address ?? "").trim(),
-        notes: String(data.notes ?? "").trim(),
-        createdAt: String(data.created_at ?? editingCustomer.createdAt),
-        updatedAt: String(data.updated_at ?? new Date().toISOString()),
-      };
-      setCustomers((items) => items.map((item) => item.id === updated.id ? updated : item));
-      if (selectedCustomerId === updated.id) {
-        setOrderStoreName(updated.name);
-        setCustomerSearch(updated.name);
-      }
-      setEditingCustomer(null);
-    } catch (error: any) {
-      setOrderError(error?.message || "Toko belum berhasil diperbarui.");
-      alert(`Toko belum berhasil diperbarui.\n\n${error?.message || "Terjadi kesalahan."}`);
-    } finally {
-      setSavingCustomer(false);
-    }
-  };
-
   const startEditOrder = (order: StoreOrder) => {
     setEditingOrderId(order.id);
     setOrderStoreName(order.storeName);
-    setSelectedCustomerId(order.customerId ?? "");
-    setCustomerSearch(order.storeName);
     setOrderDate(order.orderDate);
     setOrderItems(order.items);
-    setPaymentMethod(order.paymentMethod);
-    setPaymentStatus(order.paymentStatus);
-    setDueDate(order.dueDate);
-    setOrderNotes(order.notes);
     setSelectedReceipt(null);
   };
 
   const resetOrderForm = () => {
     setEditingOrderId(null);
     setOrderStoreName("");
-    setSelectedCustomerId("");
-    setCustomerSearch("");
     setOrderDate(localDateString());
     setOrderItems([]);
     setOrderProductId("");
@@ -1498,31 +1203,15 @@ function App() {
     setOrderQuantity("1");
     setOrderCode("");
     setOrderPrice("");
-    setPaymentMethod("cash");
-    setPaymentStatus("belum_bayar");
-    setDueDate("");
-    setOrderNotes("");
   };
 
-  const deleteOrder = async (order: StoreOrder) => {
+  const deleteOrder = (order: StoreOrder) => {
     if (!window.confirm(`Hapus pesanan ${order.id} dari ${order.storeName}?`)) return;
-    const { error } = await supabase.from("orders").delete().eq("order_number", order.id);
-    if (error) {
-      setOrderError(error.message);
-      alert(`Pesanan gagal dihapus.\n\n${error.message}`);
-      return;
-    }
     saveOrders(orders.filter((item) => item.id !== order.id));
     if (editingOrderId === order.id) resetOrderForm();
   };
 
-  const updateOrderStatus = async (order: StoreOrder, deliveryStatus: StoreOrder["deliveryStatus"]) => {
-    const { error } = await supabase.from("orders").update({ delivery_status: deliveryStatus }).eq("order_number", order.id);
-    if (error) {
-      setOrderError(error.message);
-      alert(`Status pesanan gagal diperbarui.\n\n${error.message}`);
-      return;
-    }
+  const updateOrderStatus = (order: StoreOrder, deliveryStatus: StoreOrder["deliveryStatus"]) => {
     saveOrders(orders.map((item) => item.id === order.id ? { ...item, deliveryStatus } : item));
   };
 
@@ -1532,20 +1221,16 @@ function App() {
       return;
     }
 
-    const nextItem = {
-      productId: selectedOrderProduct.id,
-      code: orderCode.trim() || selectedOrderProduct.product_code || "",
-      productName: selectedOrderProduct.name,
-      quantity: Number(orderQuantity),
-      price: priceNumber(orderPrice),
-    };
-    setOrderItems((items) => {
-      const existing = items.findIndex((item) => item.productId === nextItem.productId);
-      if (existing === -1) return [...items, nextItem];
-      return items.map((item, index) => index === existing
-        ? { ...item, quantity: item.quantity + nextItem.quantity, price: nextItem.price }
-        : item);
-    });
+    setOrderItems((items) => [
+      ...items,
+      {
+        productId: selectedOrderProduct.id,
+        code: orderCode.trim() || `SKU-${selectedOrderProduct.id}`,
+        productName: selectedOrderProduct.name,
+        quantity: Number(orderQuantity),
+        price: priceNumber(orderPrice),
+      },
+    ]);
     setOrderProductId("");
     setOrderProductSearch("");
     setOrderQuantity("1");
@@ -1555,358 +1240,89 @@ function App() {
 
   const saveOrder = async (event: FormEvent) => {
     event.preventDefault();
-    if (savingOrder) return;
     if (!orderStoreName.trim() || !orderItems.length) {
       alert("Isi nama toko dan tambahkan minimal satu barang.");
       return;
     }
-    if (orderItems.some((item) => item.quantity <= 0 || item.price < 0)) {
-      alert("Qty harus lebih dari 0 dan harga tidak boleh negatif.");
-      return;
-    }
-    if (paymentMethod === "piutang" && !dueDate) {
-      alert("Tanggal jatuh tempo wajib diisi untuk pembayaran piutang.");
-      return;
-    }
 
-    setSavingOrder(true);
     const wasEditing = Boolean(editingOrderId);
     const existingOrder = editingOrderId ? orders.find((item) => item.id === editingOrderId) : undefined;
-    const nextPaymentStatus = paymentMethod === "piutang" ? "piutang" : paymentStatus;
-    let itemsForSave = orderItems;
-    if (!wasEditing) {
-      const productIds = Array.from(new Set(orderItems.map((item) => item.productId).filter((id): id is number => id !== null)));
-      const { data: latestProducts, error: latestProductsError } = await supabase
-        .from("products")
-        .select("id, product_code, name, category, image, retail, wholesale, super_wholesale, badge, description")
-        .in("id", productIds);
-      if (latestProductsError) {
-        setOrderError(latestProductsError.message);
-        alert(`Harga terbaru gagal dimuat. Pesanan belum disimpan.\n\n${latestProductsError.message}`);
-        setSavingOrder(false);
-        return;
-      }
-      const latestById = new Map((latestProducts ?? []).map((product: any) => [Number(product.id), normalizeProduct(product)]));
-      if (latestById.size !== productIds.length) {
-        setOrderError("Ada produk pesanan yang sudah tidak tersedia di Supabase.");
-        alert("Ada produk pesanan yang sudah tidak tersedia di Supabase. Pesanan belum disimpan.");
-        setSavingOrder(false);
-        return;
-      }
-      itemsForSave = orderItems.map((item) => {
-        const latest = latestById.get(item.productId as number)!;
-        return {
-          ...item,
-          code: latest.product_code || "",
-          productName: latest.name,
-          price: getPrice(latest, item.quantity),
-        };
-      });
-    }
     const order: StoreOrder = {
       id: editingOrderId || `TRX-${Date.now().toString(36).toUpperCase()}`,
       storeName: orderStoreName.trim(),
-      customerId: selectedCustomerId || null,
       orderDate,
-      items: itemsForSave,
+      items: orderItems,
       createdAt: existingOrder?.createdAt || new Date().toISOString(),
       deliveryStatus: existingOrder?.deliveryStatus || "belum_diantar",
-      paymentMethod,
-      paymentStatus: nextPaymentStatus,
-      dueDate: paymentMethod === "piutang" ? dueDate : "",
-      notes: orderNotes.trim(),
     };
 
-    const orderPayload = {
+    saveOrders(editingOrderId ? orders.map((item) => item.id === editingOrderId ? order : item) : [order, ...orders]);
+    const { error } = await supabase.from("orders").insert({
       order_number: order.id,
-      order_date: order.orderDate,
-      customer_id: order.customerId,
       store_name: order.storeName,
-      payment_method: order.paymentMethod,
-      payment_status: order.paymentStatus,
-      due_date: order.dueDate || null,
-      subtotal: orderTotal(order),
-      grand_total: orderTotal(order),
-      notes: order.notes || null,
-      delivery_status: order.deliveryStatus,
+      order_date: order.orderDate,
       items: order.items,
       total: orderTotal(order),
-    };
-    let databaseOrderId = existingOrder?.databaseId;
-    let orderErrorMessage = "";
-    if (wasEditing) {
-      const { data, error } = await supabase.from("orders").update(orderPayload).eq("order_number", order.id).select("id").maybeSingle();
-      databaseOrderId = data?.id ? String(data.id) : databaseOrderId;
-      orderErrorMessage = error?.message ?? "";
-    } else {
-      const { data, error } = await supabase.from("orders").insert(orderPayload).select("id").single();
-      databaseOrderId = data?.id ? String(data.id) : databaseOrderId;
-      orderErrorMessage = error?.message ?? "";
-    }
-    if (orderErrorMessage) {
-      setOrderError(orderErrorMessage);
-      alert(`Pesanan belum tersimpan ke Supabase: ${orderErrorMessage}`);
-      setSavingOrder(false);
-      return;
-    }
-    if (!databaseOrderId) {
-      const message = "Supabase tidak mengembalikan ID pesanan.";
-      setOrderError(message);
-      alert(message);
-      setSavingOrder(false);
-      return;
-    }
-    const { error: deleteItemsError } = await supabase.from("order_items").delete().eq("order_id", databaseOrderId);
-    if (deleteItemsError) {
-      setOrderError(deleteItemsError.message);
-      alert(`Item pesanan belum tersimpan.\n\n${deleteItemsError.message}`);
-      setSavingOrder(false);
-      return;
-    }
-    const { error: insertItemsError } = await supabase.from("order_items").insert(order.items.map((item) => ({
-        order_id: databaseOrderId,
-        product_id: item.productId,
-        product_name: item.productName,
-        product_code: item.code,
-        quantity: item.quantity,
-        unit_price: item.price,
-        subtotal: item.quantity * item.price,
-      })));
-    if (insertItemsError) {
-      setOrderError(insertItemsError.message);
-      alert(`Item pesanan belum tersimpan.\n\n${insertItemsError.message}`);
-      setSavingOrder(false);
-      return;
-    }
-    const savedOrder = { ...order, databaseId: databaseOrderId };
-    saveOrders(wasEditing ? orders.map((item) => item.id === order.id ? savedOrder : item) : [savedOrder, ...orders]);
+    });
 
-    setSelectedReceipt(savedOrder);
+    if (error && !/relation .*orders.* does not exist|could not find the table/i.test(error.message)) {
+      console.warn("Pesanan tersimpan lokal, tetapi gagal disinkronkan:", error.message);
+    }
+
+    setSelectedReceipt(order);
     resetOrderForm();
-    setSavingOrder(false);
     alert(wasEditing ? "Pesanan berhasil diperbarui." : "Pesanan berhasil dicatat.");
   };
 
   const createReceiptBlob = async (order: StoreOrder) => {
-    const width = 900;
-    const padding = 54;
-    const headerHeight = 180;
-    const tableTop = 210;
-    const headerRowHeight = 42;
-    const rowHeight = 42;
-    const footerHeight = 150;
-    const height = tableTop + headerRowHeight + order.items.length * rowHeight + footerHeight;
+    const width = 760;
+    const lineHeight = 30;
+    const height = 220 + order.items.length * lineHeight + 150;
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext("2d");
     if (!context) return null;
 
-    // Kertas nota putih, sama seperti tampilan preview.
-    context.fillStyle = "#ffffff";
+    context.fillStyle = "#f8f6ef";
     context.fillRect(0, 0, width, height);
-
-    // Logo toko di pojok kanan atas.
-    // Rasio asli dipertahankan agar logo tidak gepeng.
-    const logoImage = await new Promise<HTMLImageElement | null>((resolve) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => resolve(null);
-      image.src = storeLogo;
-    });
-
-    if (logoImage) {
-      const maxLogoWidth = 250;
-      const maxLogoHeight = 200;
-      const ratio = Math.min(
-        maxLogoWidth / logoImage.naturalWidth,
-        maxLogoHeight / logoImage.naturalHeight,
-        1,
-      );
-      const logoWidth = Math.max(1, logoImage.naturalWidth * ratio);
-      const logoHeight = Math.max(1, logoImage.naturalHeight * ratio);
-      context.drawImage(
-        logoImage,
-        width - padding - logoWidth,
-        24,
-        logoWidth,
-        logoHeight,
-      );
-    }
-
-    // Header
     context.fillStyle = "#26332c";
-    context.font = "700 32px DM Sans, sans-serif";
-    context.textAlign = "left";
-    context.fillText("SUPER MURAH KUPANG", padding, 50);
+    context.font = "700 30px DM Sans, sans-serif";
+    context.fillText("SUPER MURAH KUPANG", 48, 55);
     context.font = "16px DM Sans, sans-serif";
-    context.fillStyle = "#c86743";
-    context.fillText("NOTA PESANAN TOKO", padding, 80);
     context.fillStyle = "#69716b";
-    context.fillText(`No. ${order.id}`, padding, 122);
-    context.fillText(`Toko: ${order.storeName}`, padding, 149);
-    context.fillText(
-      `Tanggal: ${new Date(`${order.orderDate}T00:00:00`).toLocaleDateString("id-ID")}`,
-      padding,
-      176,
-    );
-
-    context.strokeStyle = "#dce0d7";
-    context.lineWidth = 1;
-    context.beginPath();
-    context.moveTo(padding, headerHeight);
-    context.lineTo(width - padding, headerHeight);
-    context.stroke();
-
-    // Tabel: Kode | Nama Barang | Qty | Harga Satuan | Total Harga
-    const tableX = padding;
-    const tableWidth = width - padding * 2;
-    const codeWidth = 120;
-    const nameWidth = 320;
-    const qtyWidth = 75;
-    const unitPriceWidth = 150;
-    const totalWidth = tableWidth - codeWidth - nameWidth - qtyWidth - unitPriceWidth;
-    const tableBottom = tableTop + headerRowHeight + order.items.length * rowHeight;
-
-    context.fillStyle = "#eef0e9";
-    context.fillRect(tableX, tableTop, tableWidth, headerRowHeight);
-
-    context.strokeStyle = "#dce0d7";
-    context.lineWidth = 1;
-    context.strokeRect(tableX, tableTop, tableWidth, tableBottom - tableTop);
-
-    let x = tableX + codeWidth;
-    context.beginPath();
-    context.moveTo(x, tableTop);
-    context.lineTo(x, tableBottom);
-    x += nameWidth;
-    context.moveTo(x, tableTop);
-    context.lineTo(x, tableBottom);
-    x += qtyWidth;
-    context.moveTo(x, tableTop);
-    context.lineTo(x, tableBottom);
-    x += unitPriceWidth;
-    context.moveTo(x, tableTop);
-    context.lineTo(x, tableBottom);
-    context.stroke();
-
-    context.fillStyle = "#526057";
-    context.font = "600 13px DM Sans, sans-serif";
-    context.textAlign = "left";
-    context.fillText("KODE", tableX + 10, tableTop + 27);
-    context.fillText("NAMA BARANG", tableX + codeWidth + 10, tableTop + 27);
-    context.textAlign = "center";
-    context.fillText(
-      "QTY",
-      tableX + codeWidth + nameWidth + qtyWidth / 2,
-      tableTop + 27,
-    );
-    context.textAlign = "right";
-    context.fillText(
-      "HARGA SATUAN",
-      tableX + codeWidth + nameWidth + qtyWidth + unitPriceWidth - 10,
-      tableTop + 27,
-    );
-    context.fillText("TOTAL HARGA", tableX + tableWidth - 10, tableTop + 27);
-
-    const truncateText = (value: string, maxWidth: number) => {
-      if (context.measureText(value).width <= maxWidth) return value;
-      let result = value;
-      while (
-        result.length > 0 &&
-        context.measureText(`${result}…`).width > maxWidth
-      ) {
-        result = result.slice(0, -1);
-      }
-      return `${result}…`;
-    };
-
-    order.items.forEach((item, index) => {
-      const y = tableTop + headerRowHeight + index * rowHeight;
-      const baseline = y + 27;
-
-      if (index % 2 === 1) {
-        context.fillStyle = "#faf9f4";
-        context.fillRect(tableX, y, tableWidth, rowHeight);
-      }
-
-      context.strokeStyle = "#e4e6df";
-      context.beginPath();
-      context.moveTo(tableX, y);
-      context.lineTo(tableX + tableWidth, y);
-      context.stroke();
-
-      context.font = "500 12px DM Sans, sans-serif";
-      context.fillStyle = "#4f5b54";
-      context.textAlign = "left";
-      context.fillText(
-        truncateText(String(item.code || "-"), codeWidth - 20),
-        tableX + 10,
-        baseline,
-      );
-
-      context.fillStyle = "#26332c";
-      context.font = "600 12px DM Sans, sans-serif";
-      context.fillText(
-        truncateText(item.productName, nameWidth - 20),
-        tableX + codeWidth + 10,
-        baseline,
-      );
-
-      context.font = "600 12px DM Sans, sans-serif";
-      context.textAlign = "center";
-      context.fillText(
-        String(item.quantity),
-        tableX + codeWidth + nameWidth + qtyWidth / 2,
-        baseline,
-      );
-
-      context.textAlign = "right";
-      context.fillStyle = "#526057";
-      context.fillText(
-        formatRupiah(item.price),
-        tableX + codeWidth + nameWidth + qtyWidth + unitPriceWidth - 10,
-        baseline,
-      );
-      context.fillStyle = "#26332c";
-      context.fillText(
-        formatRupiah(item.price * item.quantity),
-        tableX + tableWidth - 10,
-        baseline,
-      );
-    });
-
-    const totalTop = tableBottom + 24;
+    context.fillText("NOTA PESANAN TOKO", 48, 84);
+    context.fillText(`No. ${order.id}`, 48, 125);
+    context.fillText(`Toko: ${order.storeName}`, 48, 151);
+    context.fillText(`Tanggal: ${new Date(`${order.orderDate}T00:00:00`).toLocaleDateString("id-ID")}`, 48, 177);
     context.strokeStyle = "#dce0d7";
     context.beginPath();
-    context.moveTo(tableX, totalTop);
-    context.lineTo(tableX + tableWidth, totalTop);
+    context.moveTo(48, 198);
+    context.lineTo(width - 48, 198);
     context.stroke();
 
+    let y = 235;
+    context.font = "600 15px DM Sans, sans-serif";
     context.fillStyle = "#26332c";
-    context.font = "700 20px DM Sans, sans-serif";
-    context.textAlign = "left";
-    context.fillText("TOTAL KESELURUHAN", tableX, totalTop + 35);
-    context.textAlign = "right";
-    context.fillText(
-      formatRupiah(orderTotal(order)),
-      tableX + tableWidth,
-      totalTop + 35,
-    );
-
-    context.fillStyle = "#69716b";
+    order.items.forEach((item) => {
+      context.fillText(`${item.code}  ${item.productName}`, 48, y);
+      context.textAlign = "right";
+      context.fillText(`${item.quantity} x ${formatRupiah(item.price)} = ${formatRupiah(item.price * item.quantity)}`, width - 48, y);
+      context.textAlign = "left";
+      y += lineHeight;
+    });
+    context.strokeStyle = "#dce0d7";
+    context.beginPath();
+    context.moveTo(48, y + 8);
+    context.lineTo(width - 48, y + 8);
+    context.stroke();
+    context.font = "700 22px DM Sans, sans-serif";
+    context.fillText(`Total ${formatRupiah(orderTotal(order))}`, 48, y + 52);
     context.font = "14px DM Sans, sans-serif";
-    context.textAlign = "left";
-    context.fillText(
-      `${orderQuantityTotal(order)} barang - Terima kasih sudah berbelanja.`,
-      tableX,
-      totalTop + 70,
-    );
+    context.fillStyle = "#69716b";
+    context.fillText(`${orderQuantityTotal(order)} barang - Terima kasih sudah berbelanja.`, 48, y + 88);
 
-    context.textAlign = "left";
-    return new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/png"),
-    );
+    return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   };
 
   const downloadReceipt = async (order: StoreOrder) => {
@@ -2055,7 +1471,6 @@ function App() {
 
     if (product) {
       setForm({
-        product_code: product.product_code || "",
         name: product.name,
         category:
           product.category,
@@ -2198,7 +1613,6 @@ function App() {
 
     try {
       const payload = {
-        product_code: form.product_code?.trim() || null,
         name,
         category,
         retail:
@@ -2214,7 +1628,6 @@ function App() {
         description:
           form.description?.trim() ||
           null,
-        updated_at: new Date().toISOString(),
       };
 
       console.log(
@@ -2969,14 +2382,6 @@ function App() {
             );
 
             return {
-              product_code: String(
-                values.kodebarang ??
-                  values.kode ??
-                  values.kodeproduk ??
-                  values.sku ??
-                  values.productcode ??
-                  "",
-              ).trim(),
               name: String(
                 values.namabarang ??
                   values.nama ??
@@ -3037,85 +2442,187 @@ function App() {
           return;
         }
 
-        const existingPageSize = 1000;
-        let existingFrom = 0;
-        let existingProducts: any[] = [];
+        /* -----------------------------------------------
+           AMBIL NAMA PRODUK YANG SUDAH ADA DI SUPABASE
+        ------------------------------------------------ */
 
-        while (true) {
-          const { data: pageData, error: existingProductsError } = await supabase
-            .from("products")
-            .select("*")
-            .order("id", { ascending: true })
-            .range(existingFrom, existingFrom + existingPageSize - 1);
+        const {
+          data: existingProducts,
+          error: existingProductsError,
+        } = await supabase
+          .from("products")
+          .select("id, name");
 
-          if (existingProductsError) {
-            throw new Error(`Gagal membaca katalog saat import: ${existingProductsError.message}`);
-          }
+        if (existingProductsError) {
+          console.error(
+            "Gagal mengecek produk yang sudah ada:",
+            existingProductsError,
+          );
 
-          existingProducts = existingProducts.concat(pageData ?? []);
-          if (!pageData || pageData.length < existingPageSize) break;
-          existingFrom += existingPageSize;
+          alert(
+            `Gagal mengecek katalog saat import.\n\n${existingProductsError.message}`,
+          );
+
+          return;
         }
 
-        const existingByCode = new Map<string, any>();
-        const existingByName = new Map<string, any>();
+        const existingNames = new Set<string>();
+
         for (const product of existingProducts ?? []) {
-          const code = String(product.product_code ?? "").trim().toLowerCase();
-          const name = normalizeProductName(product.name);
-          if (code && !existingByCode.has(code)) existingByCode.set(code, product);
-          if (name && !existingByName.has(name)) existingByName.set(name, product);
+          const normalizedName = normalizeProductName(
+            product?.name,
+          );
+
+          if (normalizedName) {
+            existingNames.add(normalizedName);
+          }
         }
 
-        const rowsByKey = new Map<string, (typeof imported)[number]>();
-        let duplicateExcel = 0;
+        /* -----------------------------------------------
+           FILTER DUPLIKAT
+
+           Ada 2 jenis barang yang di-SKIP:
+
+           1. Nama sudah ada di Supabase.
+           2. Nama muncul lebih dari sekali di Excel.
+
+           Hanya barang yang benar-benar baru yang boleh
+           dikirim ke Supabase.
+        ------------------------------------------------ */
+
+        const namesFromExcel = new Set<string>();
+        const newProductsToInsert: typeof imported = [];
+
+        let skippedExisting = 0;
+        let skippedExcelDuplicate = 0;
+
         for (const product of imported) {
-          const key = product.product_code
-            ? `code:${product.product_code.toLowerCase()}`
-            : `name:${normalizeProductName(product.name)}`;
-          if (rowsByKey.has(key)) duplicateExcel += 1;
-          rowsByKey.set(key, product);
-        }
+          const normalizedName = normalizeProductName(
+            product.name,
+          );
 
-        let insertedCount = 0;
-        let updatedCount = 0;
-        let failedCount = 0;
-        const successfulProducts: any[] = [];
-
-        for (const product of rowsByKey.values()) {
-          const codeKey = product.product_code.toLowerCase();
-          const nameKey = normalizeProductName(product.name);
-          const existing = (codeKey && existingByCode.get(codeKey)) || existingByName.get(nameKey);
-          const payload = {
-            product_code: product.product_code || null,
-            name: product.name,
-            category: product.category,
-            retail: product.retail,
-            wholesale: product.wholesale,
-            super_wholesale: product.super_wholesale,
-            image: product.image,
-            badge: product.badge || null,
-            description: product.description || null,
-            updated_at: new Date().toISOString(),
-          };
-
-          const result = existing
-            ? await supabase.from("products").update(payload).eq("id", existing.id).select().single()
-            : await supabase.from("products").insert(payload).select().single();
-
-          if (result.error || !result.data) {
-            failedCount += 1;
-            console.error("Produk gagal diimport:", product.name, result.error);
+          // Sudah ada di database → SKIP.
+          if (existingNames.has(normalizedName)) {
+            skippedExisting += 1;
             continue;
           }
 
-          successfulProducts.push(result.data);
-          if (existing) updatedCount += 1;
-          else insertedCount += 1;
-          const saved = result.data;
-          const savedCode = String(saved.product_code ?? "").trim().toLowerCase();
-          const savedName = normalizeProductName(saved.name);
-          if (savedCode) existingByCode.set(savedCode, saved);
-          if (savedName) existingByName.set(savedName, saved);
+          // Muncul dua kali atau lebih dalam Excel → SKIP.
+          if (namesFromExcel.has(normalizedName)) {
+            skippedExcelDuplicate += 1;
+            continue;
+          }
+
+          namesFromExcel.add(normalizedName);
+          newProductsToInsert.push(product);
+        }
+
+        console.log("=== HASIL FILTER IMPORT EXCEL ===");
+        console.log("Total baris valid Excel:", imported.length);
+        console.log(
+          "Sudah ada di Supabase (SKIP):",
+          skippedExisting,
+        );
+        console.log(
+          "Duplikat di Excel (SKIP):",
+          skippedExcelDuplicate,
+        );
+        console.log(
+          "Produk baru yang akan diinsert:",
+          newProductsToInsert.length,
+        );
+
+        /* -----------------------------------------------
+           SEMUA PRODUK SUDAH ADA / DUPLIKAT
+        ------------------------------------------------ */
+
+        if (!newProductsToInsert.length) {
+          alert(
+            [
+              "Import selesai.",
+              "",
+              `Total baris valid: ${imported.length}`,
+              `Dilewati karena sudah ada: ${skippedExisting}`,
+              `Dilewati karena duplikat di Excel: ${skippedExcelDuplicate}`,
+              "",
+              "Tidak ada barang baru yang ditambahkan.",
+            ].join("\n"),
+          );
+
+          return;
+        }
+
+        /* -----------------------------------------------
+           INSERT KE SUPABASE
+
+           Hanya newProductsToInsert yang dikirim.
+           Jadi barang dengan nama yang sama TIDAK ikut
+           dikirim ke Supabase.
+        ------------------------------------------------ */
+
+        let insertedProducts: any[] = [];
+
+        const {
+          data: insertedData,
+          error: insertError,
+        } = await supabase
+          .from("products")
+          .insert(newProductsToInsert)
+          .select();
+
+        if (!insertError) {
+          insertedProducts = insertedData ?? [];
+        } else {
+          /*
+           * Fallback tambahan:
+           * Jika database sudah memiliki UNIQUE constraint
+           * dan terjadi konflik saat batch insert, kita coba
+           * satu per satu. Barang yang konflik akan di-SKIP,
+           * sedangkan barang lain tetap masuk.
+           */
+          console.warn(
+            "Batch insert gagal, mencoba insert satu per satu:",
+            insertError,
+          );
+
+          for (const product of newProductsToInsert) {
+            const {
+              data: singleInserted,
+              error: singleError,
+            } = await supabase
+              .from("products")
+              .insert(product)
+              .select()
+              .single();
+
+            if (singleError) {
+              const message = String(
+                singleError.message ?? "",
+              ).toLowerCase();
+
+              // Konflik UNIQUE / duplicate → SKIP.
+              if (
+                singleError.code === "23505" ||
+                message.includes("duplicate") ||
+                message.includes("unique")
+              ) {
+                skippedExisting += 1;
+                continue;
+              }
+
+              console.error(
+                "Produk gagal diinsert:",
+                product.name,
+                singleError,
+              );
+
+              throw singleError;
+            }
+
+            if (singleInserted) {
+              insertedProducts.push(singleInserted);
+            }
+          }
         }
 
         /* -----------------------------------------------
@@ -3126,8 +2633,8 @@ function App() {
         ------------------------------------------------ */
 
         const insertedForCategories =
-          successfulProducts.length
-            ? successfulProducts.map(normalizeProduct)
+          insertedProducts.length
+            ? insertedProducts.map(normalizeProduct)
             : [];
 
         const existingCategoryNames = new Set(
@@ -3182,8 +2689,8 @@ function App() {
          * apabila SELECT/realtime belum sempat memperbarui
          * daftar produk.
          */
-        if (successfulProducts.length) {
-          const normalizedInserted = successfulProducts
+        if (insertedProducts.length) {
+          const normalizedInserted = insertedProducts
             .map(normalizeProduct)
             .filter(
               (product) =>
@@ -3214,14 +2721,18 @@ function App() {
            HASIL IMPORT
         ------------------------------------------------ */
 
+        const insertedCount = insertedProducts.length;
+        const totalSkipped =
+          skippedExisting + skippedExcelDuplicate;
+
         alert(
           [
             "Import Excel selesai!",
             "",
             `Berhasil ditambahkan: ${insertedCount} barang`,
-            `Diperbarui: ${updatedCount} barang`,
-            `Duplikat Excel: ${duplicateExcel}`,
-            `Gagal: ${failedCount}`,
+            `Dilewati karena sudah ada: ${skippedExisting} barang`,
+            `Dilewati karena duplikat di Excel: ${skippedExcelDuplicate} barang`,
+            `Total dilewati: ${totalSkipped} barang`,
           ].join("\n"),
         );
       } catch (error) {
@@ -3298,13 +2809,17 @@ function App() {
             alt="Logo"
           />
 
-          <span>SUPER</span>{" "}
-          MURAH
-          <span className="brand-dot">
-            .
-          </span>
+          <span className="brand-copy">
+            <span className="brand-name">
+              <span>SUPER</span>{" "}
+              MURAH
+              <span className="brand-dot">
+                .
+              </span>
+            </span>
 
-          <small>KUPANG</small>
+            <small>KUPANG</small>
+          </span>
         </a>
 
         <div
@@ -4027,37 +3542,18 @@ function App() {
               )}
             </strong>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => setCartOpen(true)}
-                disabled={!cartItems.length}
-                style={{
-                  minHeight: "46px",
-                  padding: "0 18px",
-                  border: "1px solid rgba(255,255,255,0.28)",
-                  background: "transparent",
-                  color: "inherit",
-                  font: "inherit",
-                  fontWeight: 700,
-                  cursor: cartItems.length ? "pointer" : "not-allowed",
-                  opacity: cartItems.length ? 1 : 0.55,
-                }}
-              >
-                Lihat keranjang
-              </button>
-
-              <button
-                className="primary-btn"
-                onClick={checkout}
-                disabled={!cartItems.length}
-              >
-                Checkout via WhatsApp{" "}
-                <MessageCircle
-                  size={17}
-                />
-              </button>
-            </div>
+            <button
+              className="primary-btn"
+              onClick={checkout}
+              disabled={
+                !cartItems.length
+              }
+            >
+              Checkout via WhatsApp{" "}
+              <MessageCircle
+                size={17}
+              />
+            </button>
           </div>
         </div>
       </section>
@@ -4846,10 +4342,6 @@ function App() {
                                   }
                                 </strong>
 
-                                {product.product_code && (
-                                  <small>Kode: {product.product_code}</small>
-                                )}
-
                                 <small>
                                   {
                                     product.retail
@@ -4976,8 +4468,6 @@ function App() {
 
                   {adminSection === "orders" && (
                     <div className="orders-panel">
-                      {orderError && <p className="order-error">{orderError}</p>}
-                      {ordersLoading && <p className="order-loading">Memuat pesanan...</p>}
                       <div className="order-entry-layout">
                         <form className="order-form" onSubmit={saveOrder}>
                           <div className="order-form-heading">
@@ -4992,33 +4482,9 @@ function App() {
                             Nama toko
                             <div className="input-with-icon">
                               <Store size={16} />
-                              <input value={customerSearch} onChange={(e) => {
-                                setCustomerSearch(e.target.value);
-                                setOrderStoreName(e.target.value);
-                                setSelectedCustomerId("");
-                              }} placeholder="Cari toko..." required />
+                              <input value={orderStoreName} onChange={(e) => setOrderStoreName(e.target.value)} placeholder="Contoh: Toko Berkat" required />
                             </div>
-                            {customerSearch.trim() && !selectedCustomerId && <div className="customer-results">
-                              {customerMatches.map((customer) => <button type="button" key={customer.id} onClick={() => {
-                                setSelectedCustomerId(customer.id);
-                                setOrderStoreName(customer.name);
-                                setCustomerSearch(customer.name);
-                              }}><strong>{customer.name}</strong><small>{customer.whatsapp || "Nomor WhatsApp belum diisi"}</small></button>)}
-                              {!customerMatches.length && <p>Toko belum ditemukan.</p>}
-                            </div>}
-                            {selectedCustomerId && customers.find((customer) => customer.id === selectedCustomerId) && (
-                              <button type="button" className="new-customer-btn" onClick={() => openCustomerEditor(customers.find((customer) => customer.id === selectedCustomerId) as Customer)}><Pencil size={13} /> Edit toko</button>
-                            )}
-                            <button type="button" className="new-customer-btn" onClick={() => setNewCustomerOpen((open) => !open)}><Plus size={13} /> Tambah toko baru</button>
                           </label>
-
-                          {newCustomerOpen && <div className="new-customer-form">
-                            <label>Nama toko<input value={newCustomer.name} onChange={(e) => setNewCustomer((item) => ({ ...item, name: e.target.value }))} /></label>
-                            <label>Nomor WhatsApp<input value={newCustomer.whatsapp} onChange={(e) => setNewCustomer((item) => ({ ...item, whatsapp: e.target.value }))} /></label>
-                            <label>Alamat<input value={newCustomer.address} onChange={(e) => setNewCustomer((item) => ({ ...item, address: e.target.value }))} /></label>
-                            <label>Catatan customer<textarea value={newCustomer.notes} onChange={(e) => setNewCustomer((item) => ({ ...item, notes: e.target.value }))} /></label>
-                            <button type="button" className="secondary-btn" onClick={createCustomer}>Simpan toko</button>
-                          </div>}
 
                           <label>
                             Tanggal pesanan
@@ -5027,13 +4493,6 @@ function App() {
                               <input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} required />
                             </div>
                           </label>
-
-                          <div className="order-payment-fields">
-                            <label>Metode pembayaran<select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}>{Object.entries(paymentMethodLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-                            <label>Status pembayaran<select value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}>{Object.entries(paymentStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-                          </div>
-                          {paymentMethod === "piutang" && <label>Jatuh tempo<input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} required /></label>}
-                          <label>Catatan pesanan<textarea className="order-notes" value={orderNotes} onChange={(e) => setOrderNotes(e.target.value)} placeholder="Contoh: Kirim sore" /></label>
 
                           <div className="order-item-fields">
                             <label className="order-product-picker">
@@ -5061,7 +4520,7 @@ function App() {
                                       }}
                                     >
                                       <span>{product.name}</span>
-                                      <small>{product.category}{product.product_code ? ` · ${product.product_code}` : ""} · {formatRupiah(getPrice(product, Number(orderQuantity) || 1))}</small>
+                                      <small>{product.category} · SKU-{product.id}</small>
                                     </button>
                                   ))}
                                   {!orderProductMatches.length && <p>Tidak ada barang ditemukan.</p>}
@@ -5070,7 +4529,7 @@ function App() {
                             </label>
                             <label>
                               Kode barang
-                              <input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} placeholder="Kode barang (opsional)" />
+                              <input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} placeholder="SKU-001" />
                             </label>
                             <label>
                               Qty
@@ -5101,11 +4560,11 @@ function App() {
                             <span>Total barang <strong>{orderQuantityTotal({ items: orderItems })} pcs</strong></span>
                             <strong>{formatRupiah(orderTotal({ items: orderItems }))}</strong>
                           </div>
-                          <button className="primary-btn save-order-btn" disabled={!orderItems.length || savingOrder}>{savingOrder ? "Menyimpan..." : editingOrderId ? "Simpan perubahan" : "Simpan pesanan"} <Receipt size={16} /></button>
+                          <button className="primary-btn save-order-btn" disabled={!orderItems.length}>{editingOrderId ? "Simpan perubahan" : "Simpan pesanan"} <Receipt size={16} /></button>
                           {editingOrderId && <button type="button" className="secondary-btn cancel-order-edit" onClick={resetOrderForm}>Batal edit</button>}
                         </form>
 
-                          <div className="orders-summary">
+                        <div className="orders-summary">
                           <div className="summary-heading"><div><p className="eyebrow">Ringkasan</p><h3>Penjualan <em>toko.</em></h3></div><BarChart3 size={23} /></div>
                           <div className="order-filters">
                             <label>Dari<input type="date" value={orderStartDate} onChange={(e) => setOrderStartDate(e.target.value)} /></label>
@@ -5115,9 +4574,7 @@ function App() {
                             <div><small>Total omzet</small><strong>{formatRupiah(filteredOrders.reduce((sum, order) => sum + orderTotal(order), 0))}</strong></div>
                             <div><small>Pesanan</small><strong>{filteredOrders.length}</strong></div>
                             <div><small>Barang terjual</small><strong>{filteredOrders.reduce((sum, order) => sum + orderQuantityTotal(order), 0)} pcs</strong></div>
-                            <div><small>Piutang</small><strong>{formatRupiah(filteredOrders.filter((order) => order.paymentStatus === "piutang").reduce((sum, order) => sum + orderTotal(order), 0))}</strong></div>
                           </div>
-                          <div className="best-sellers"><div className="best-sellers-heading"><strong>Produk terlaris</strong><select value={bestSellerPeriod} onChange={(e) => setBestSellerPeriod(e.target.value as typeof bestSellerPeriod)}><option value="today">Hari ini</option><option value="7days">7 hari</option><option value="month">Bulan ini</option><option value="custom">Custom</option></select></div>{bestSellerPeriod === "custom" && <div className="best-seller-dates"><input type="date" value={orderStartDate} onChange={(e) => setOrderStartDate(e.target.value)} /><input type="date" value={orderEndDate} onChange={(e) => setOrderEndDate(e.target.value)} /></div>}{bestSellers.map((item) => <div className="best-seller-row" key={item.name}><span>{item.name}</span><strong>{item.quantity} pcs</strong></div>)}{!bestSellers.length && <p className="order-empty">Belum ada produk terjual pada periode ini.</p>}</div>
                           <div className="sales-chart" aria-label="Grafik omzet harian">
                             {chartDays.map((day) => {
                               const maxTotal = Math.max(...chartDays.map((entry) => entry.total), 1);
@@ -5127,9 +4584,8 @@ function App() {
                           <div className="order-history-head"><strong>Riwayat pesanan</strong><label className="order-search"><Search size={14} /><input value={orderSearch} onChange={(e) => setOrderSearch(e.target.value)} placeholder="Cari toko..." /></label></div>
                           <div className="order-history">
                             {paginatedOrders.map((order) => <div className="order-history-row" key={order.id}>
-                              <div><strong>{order.storeName}</strong><small>{order.id} - {new Date(`${order.orderDate}T00:00:00`).toLocaleDateString("id-ID")}</small><span className={`payment-badge payment-${order.paymentStatus}`}>{paymentStatusLabels[order.paymentStatus]}</span>{order.notes && <small title={order.notes}>Catatan tersedia</small>}</div>
+                              <div><strong>{order.storeName}</strong><small>{order.id} - {new Date(`${order.orderDate}T00:00:00`).toLocaleDateString("id-ID")}</small></div>
                               <strong>{formatRupiah(orderTotal(order))}</strong>
-                              <small className="payment-method">{paymentMethodLabels[order.paymentMethod]}</small>
                               <select className="order-status" value={order.deliveryStatus || "belum_diantar"} onChange={(event) => updateOrderStatus(order, event.target.value as StoreOrder["deliveryStatus"])}>
                                 <option value="belum_diantar">Belum diantar</option><option value="diantar">Diantar</option><option value="ambil_sendiri">Diambil sendiri</option>
                               </select>
@@ -5430,291 +4886,19 @@ function App() {
         </div>
       )}
 
-      {cartOpen && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setCartOpen(false)}
-          style={{ zIndex: 1200, padding: "20px", overflowY: "auto" }}
-        >
-          <div
-            onClick={(event) => event.stopPropagation()}
-            style={{
-              width: "min(760px, 100%)",
-              maxHeight: "min(82vh, 760px)",
-              overflow: "hidden",
-              background: "#f8f7f3",
-              color: "#27332f",
-              borderRadius: "14px",
-              boxShadow: "0 24px 80px rgba(0,0,0,0.28)",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
-            <div
-              style={{
-                padding: "22px 24px 18px",
-                borderBottom: "1px solid rgba(39,51,47,0.12)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "16px",
-              }}
-            >
-              <div>
-                <p style={{ margin: 0, fontSize: "11px", letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.6 }}>
-                  Belanja Anda
-                </p>
-                <h3 style={{ margin: "5px 0 0", fontSize: "24px" }}>
-                  Keranjang
-                </h3>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setCartOpen(false)}
-                aria-label="Tutup keranjang"
-                style={{
-                  width: "38px",
-                  height: "38px",
-                  border: "none",
-                  background: "transparent",
-                  color: "inherit",
-                  cursor: "pointer",
-                  display: "grid",
-                  placeItems: "center",
-                }}
-              >
-                <X size={22} />
-              </button>
-            </div>
-
-            <div style={{ padding: "8px 24px 20px", overflowY: "auto" }}>
-              {!cartItems.length ? (
-                <div style={{ padding: "44px 12px", textAlign: "center", opacity: 0.65 }}>
-                  Keranjang masih kosong.
-                </div>
-              ) : (
-                <>
-                  <div style={{ display: "flex", flexDirection: "column" }}>
-                    {cartItems.map((product) => {
-                      const quantity = cart[product.id] || 0;
-                      const unitPrice = getPrice(product, quantity);
-                      const lineTotal = unitPrice * quantity;
-
-                      return (
-                        <div
-                          key={product.id}
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "64px minmax(0, 1fr) auto",
-                            alignItems: "center",
-                            gap: "14px",
-                            padding: "16px 0",
-                            borderBottom: "1px solid rgba(39,51,47,0.10)",
-                          }}
-                        >
-                          <img
-                            src={product.image || getDefaultCategoryImage(product.category)}
-                            alt={product.name}
-                            style={{
-                              width: "64px",
-                              height: "64px",
-                              objectFit: "cover",
-                              borderRadius: "8px",
-                              background: "#eceae4",
-                            }}
-                          />
-
-                          <div style={{ minWidth: 0 }}>
-                            {product.product_code && (
-                              <div style={{ fontSize: "11px", letterSpacing: "0.06em", opacity: 0.55, marginBottom: "4px" }}>
-                                Kode: {product.product_code}
-                              </div>
-                            )}
-
-                            <strong style={{ display: "block", fontSize: "15px", lineHeight: 1.35 }}>
-                              {product.name}
-                            </strong>
-
-                            <div style={{ marginTop: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
-                              <button
-                                type="button"
-                                onClick={() => changeCartQuantity(product.id, quantity - 1)}
-                                style={{
-                                  width: "32px",
-                                  height: "32px",
-                                  borderRadius: "50%",
-                                  border: "1px solid rgba(39,51,47,0.16)",
-                                  background: "#fff",
-                                  color: "inherit",
-                                  cursor: "pointer",
-                                  fontSize: "18px",
-                                  lineHeight: 1,
-                                }}
-                              >
-                                −
-                              </button>
-
-                              <strong style={{ minWidth: "26px", textAlign: "center" }}>
-                                {quantity}
-                              </strong>
-
-                              <button
-                                type="button"
-                                onClick={() => addToCart(product)}
-                                style={{
-                                  width: "32px",
-                                  height: "32px",
-                                  borderRadius: "50%",
-                                  border: "none",
-                                  background: "#c86743",
-                                  color: "#fff",
-                                  cursor: "pointer",
-                                  fontSize: "20px",
-                                  lineHeight: 1,
-                                }}
-                              >
-                                +
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => changeCartQuantity(product.id, 0)}
-                                style={{
-                                  marginLeft: "4px",
-                                  border: "none",
-                                  background: "transparent",
-                                  color: "#9b5542",
-                                  cursor: "pointer",
-                                  fontSize: "12px",
-                                  padding: "7px 6px",
-                                }}
-                              >
-                                Hapus
-                              </button>
-                            </div>
-                          </div>
-
-                          <div style={{ textAlign: "right", alignSelf: "center" }}>
-                            <strong style={{ display: "block", fontSize: "14px", whiteSpace: "nowrap" }}>
-                              {formatRupiah(lineTotal)}
-                            </strong>
-                            <small style={{ display: "block", marginTop: "4px", opacity: 0.58, whiteSpace: "nowrap" }}>
-                              {formatRupiah(unitPrice)} / pcs
-                            </small>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div
-                    style={{
-                      marginTop: "18px",
-                      paddingTop: "18px",
-                      borderTop: "1px solid rgba(39,51,47,0.16)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "16px",
-                    }}
-                  >
-                    <div>
-                      <small style={{ display: "block", opacity: 0.6 }}>
-                        Total {totalQuantity} pcs
-                      </small>
-                      <strong style={{ display: "block", marginTop: "4px", fontSize: "22px" }}>
-                        {formatRupiah(
-                          cartItems.reduce(
-                            (sum, product) =>
-                              sum +
-                              getPrice(product, cart[product.id]) *
-                                cart[product.id],
-                            0,
-                          ),
-                        )}
-                      </strong>
-                    </div>
-
-                    <button
-                      type="button"
-                      className="primary-btn"
-                      onClick={() => {
-                        setCartOpen(false);
-                        checkout();
-                      }}
-                    >
-                      Checkout via WhatsApp <MessageCircle size={17} />
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       {selectedReceipt && (
         <div className="modal-backdrop" onClick={() => setSelectedReceipt(null)}>
           <div className="receipt-modal" onClick={(event) => event.stopPropagation()}>
-            <div
-              className="receipt-paper"
-              id="receipt-preview"
-              style={{ position: "relative", background: "#ffffff" }}
-            >
-              <img
-                src={storeLogo}
-                alt="Logo SUPER MURAH KUPANG"
-                style={{
-                  position: "absolute",
-                  top: -16,
-                  right: -36,
-                  width: 220,
-                  height: "auto",
-                  maxHeight: 80,
-                  objectFit: "contain",
-                }}
-              />
+            <div className="receipt-paper" id="receipt-preview">
               <div className="receipt-brand">SUPER MURAH KUPANG</div>
               <p className="receipt-label">NOTA PESANAN TOKO</p>
-              <div className="receipt-meta">
-                <span>No. {selectedReceipt.id}</span>
-                <span>{new Date(`${selectedReceipt.orderDate}T00:00:00`).toLocaleDateString("id-ID")}</span>
-              </div>
+              <div className="receipt-meta"><span>No. {selectedReceipt.id}</span><span>{new Date(`${selectedReceipt.orderDate}T00:00:00`).toLocaleDateString("id-ID")}</span></div>
               <strong className="receipt-store">{selectedReceipt.storeName}</strong>
-
-              <div style={{ marginTop: 22, border: "1px solid #dce0d7", borderRadius: 10, overflow: "hidden", background: "#fbfaf6" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: "#eef0e9", color: "#526057" }}>
-                      <th style={{ width: "18%", padding: "10px 9px", textAlign: "left", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Kode</th>
-                      <th style={{ width: "34%", padding: "10px 9px", textAlign: "left", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Nama Barang</th>
-                      <th style={{ width: "10%", padding: "10px 7px", textAlign: "center", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Qty</th>
-                      <th style={{ width: "18%", padding: "10px 9px", textAlign: "right", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Harga Satuan</th>
-                      <th style={{ width: "20%", padding: "10px 9px", textAlign: "right", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Total Harga</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedReceipt.items.map((item, index) => (
-                      <tr key={`${item.productId}-${index}`} style={{ background: index % 2 === 1 ? "#faf9f4" : "transparent" }}>
-                        <td style={{ padding: "10px 9px", color: "#69716b", borderBottom: "1px solid #e7e8e2", verticalAlign: "top", wordBreak: "break-word" }}>{item.code || "-"}</td>
-                        <td style={{ padding: "10px 9px", color: "#26332c", fontWeight: 600, borderBottom: "1px solid #e7e8e2", verticalAlign: "top", wordBreak: "break-word" }}>{item.productName}</td>
-                        <td style={{ padding: "10px 7px", color: "#526057", fontWeight: 600, textAlign: "center", borderBottom: "1px solid #e7e8e2", verticalAlign: "top" }}>{item.quantity}</td>
-                        <td style={{ padding: "10px 9px", color: "#526057", fontWeight: 600, textAlign: "right", borderBottom: "1px solid #e7e8e2", verticalAlign: "top", whiteSpace: "nowrap" }}>{formatRupiah(item.price)}</td>
-                        <td style={{ padding: "10px 9px", color: "#26332c", fontWeight: 600, textAlign: "right", borderBottom: "1px solid #e7e8e2", verticalAlign: "top", whiteSpace: "nowrap" }}>{formatRupiah(item.price * item.quantity)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colSpan={4} style={{ padding: "13px 9px", color: "#526057", fontWeight: 600, borderTop: "1px solid #dce0d7" }}>Total Keseluruhan</td>
-                      <td style={{ padding: "13px 9px", color: "#26332c", fontWeight: 700, textAlign: "right", borderTop: "1px solid #dce0d7", whiteSpace: "nowrap" }}>{formatRupiah(orderTotal(selectedReceipt))}</td>
-                    </tr>
-                  </tfoot>
-                </table>
+              <div className="receipt-lines">
+                {selectedReceipt.items.map((item, index) => <div key={`${item.productId}-${index}`}><div><strong>{item.productName}</strong><small>{item.code} - {item.quantity} x {formatRupiah(item.price)}</small></div><strong>{formatRupiah(item.price * item.quantity)}</strong></div>)}
               </div>
-
-              <p className="receipt-thanks" style={{ marginTop: 18 }}>{orderQuantityTotal(selectedReceipt)} barang - Terima kasih sudah berbelanja.</p>
+              <div className="receipt-total"><span>Total {orderQuantityTotal(selectedReceipt)} pcs</span><strong>{formatRupiah(orderTotal(selectedReceipt))}</strong></div>
+              <p className="receipt-thanks">Terima kasih sudah berbelanja.</p>
             </div>
             <div className="receipt-actions">
               <button className="secondary-btn" onClick={() => copyReceipt(selectedReceipt)}><Clipboard size={15} /> Salin gambar</button>
@@ -5722,27 +4906,6 @@ function App() {
               <button className="close-modal" onClick={() => setSelectedReceipt(null)}><X /></button>
             </div>
           </div>
-        </div>
-      )}
-
-      {isAdmin && editingCustomer && (
-        <div className="editor-overlay" onClick={() => setEditingCustomer(null)}>
-          <form className="product-editor" onSubmit={(event) => { event.preventDefault(); updateCustomer(); }} onClick={(event) => event.stopPropagation()}>
-            <div className="editor-head">
-              <div>
-                <p className="eyebrow">Master toko</p>
-                <h2>Edit toko.</h2>
-              </div>
-              <button type="button" className="close-modal" onClick={() => setEditingCustomer(null)}><X /></button>
-            </div>
-            <div className="editor-grid">
-              <label>Nama toko<input value={customerEditor.name} onChange={(event) => setCustomerEditor((current) => ({ ...current, name: event.target.value }))} required /></label>
-              <label>WhatsApp<input value={customerEditor.whatsapp} onChange={(event) => setCustomerEditor((current) => ({ ...current, whatsapp: event.target.value }))} /></label>
-              <label>Alamat<input value={customerEditor.address} onChange={(event) => setCustomerEditor((current) => ({ ...current, address: event.target.value }))} /></label>
-              <label>Catatan<textarea value={customerEditor.notes} onChange={(event) => setCustomerEditor((current) => ({ ...current, notes: event.target.value }))} /></label>
-            </div>
-            <button className="primary-btn" disabled={savingCustomer}>{savingCustomer ? "Menyimpan..." : "Simpan perubahan"}</button>
-          </form>
         </div>
       )}
 
@@ -5786,21 +4949,6 @@ function App() {
               </div>
 
               <div className="editor-grid">
-                <label>
-                  Kode barang
-
-                  <input
-                    value={form.product_code || ""}
-                    onChange={(e) =>
-                      setForm((current) => ({
-                        ...current,
-                        product_code: e.target.value,
-                      }))
-                    }
-                    placeholder="Contoh: BRG001"
-                  />
-                </label>
-
                 <label>
                   Nama produk
 
