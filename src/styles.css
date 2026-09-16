@@ -3210,3 +3210,45 @@ em {
     font-size: 44px;
   }
 }
+/* =========================================================
+   NOTA MODAL — FINAL
+   Isi nota bisa scroll, tombol selalu tersedia
+   ========================================================= */
+
+.receipt-modal {
+    width: min(660px, calc(100vw - 30px));
+
+    max-height: calc(100vh - 30px);
+
+    display: flex;
+    flex-direction: column;
+
+    box-sizing: border-box;
+
+    overflow: hidden;
+}
+
+/* Area nota yang bisa digulir */
+.receipt-paper {
+    max-height: calc(100vh - 130px);
+
+    overflow-y: auto;
+
+    box-sizing: border-box;
+}
+
+/* Tombol tidak ikut hilang saat nota panjang */
+.receipt-actions {
+    flex-shrink: 0;
+
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    margin-top: 15px;
+    padding-top: 10px;
+
+    background: var(--cream);
+
+    border-top: 1px solid var(--line);
+}

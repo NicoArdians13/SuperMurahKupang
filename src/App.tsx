@@ -41,6 +41,7 @@ type Category = {
 
 type Product = {
   id: number;
+  product_code?: string | null;
   name: string;
   category: string;
   image: string;
@@ -75,6 +76,7 @@ type Customer = {
   address: string;
   notes: string;
   createdAt: string;
+  updatedAt?: string;
 };
 
 type PaymentMethod = "cash" | "transfer" | "qris" | "debit" | "piutang";
@@ -170,6 +172,7 @@ const defaultCategories: { label: string; image: string }[] = [
 ========================================================= */
 
 const emptyProduct: Omit<Product, "id"> = {
+  product_code: "",
   name: "",
   category: "Dapur",
   retail: "",
@@ -208,6 +211,11 @@ const normalizeProduct = (product: any): Product => ({
   id: Number.isFinite(Number(product?.id))
     ? Number(product.id)
     : 0,
+
+  product_code:
+    product?.product_code === null || product?.product_code === undefined
+      ? ""
+      : String(product.product_code).trim(),
 
   name: String(product?.name ?? "").trim(),
 
@@ -445,6 +453,9 @@ function App() {
   const [customerSearch, setCustomerSearch] = useState("");
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: "", whatsapp: "", address: "", notes: "" });
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [customerEditor, setCustomerEditor] = useState({ name: "", whatsapp: "", address: "", notes: "" });
+  const [savingCustomer, setSavingCustomer] = useState(false);
   const [orderDate, setOrderDate] = useState(localDateString());
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [orderProductId, setOrderProductId] = useState("");
@@ -491,6 +502,9 @@ function App() {
   /* =======================================================
      CART
   ======================================================= */
+
+  const [cartOpen, setCartOpen] =
+    useState(false);
 
   const [cart, setCart] =
     useState<Record<number, number>>(() => {
@@ -719,50 +733,34 @@ function App() {
     setProductsError("");
 
     try {
-      // Supabase membatasi hasil query default. Ambil produk bertahap
-      // agar seluruh katalog (termasuk >1.000 produk) tetap dimuat.
       const pageSize = 1000;
       let from = 0;
       let allProducts: any[] = [];
 
       while (true) {
-        const {
-          data,
-          error,
-        } = await supabase
+        const { data, error } = await supabase
           .from("products")
           .select("*")
-          .order("id", {
-            ascending: true,
-          })
+          .order("id", { ascending: true })
           .range(from, from + pageSize - 1);
 
         if (error) {
-          console.error(
-            "Gagal mengambil products dari Supabase:",
-            error,
-          );
+        console.error(
+          "Gagal mengambil products dari Supabase:",
+          error,
+        );
 
-          setProductsError(
-            error.message ||
-              "Gagal memuat katalog produk.",
-          );
+        setProductsError(
+          error.message ||
+            "Gagal memuat katalog produk.",
+        );
 
           setProducts([]);
-
           return;
         }
 
-        if (!data || data.length === 0) {
-          break;
-        }
-
-        allProducts = allProducts.concat(data);
-
-        if (data.length < pageSize) {
-          break;
-        }
-
+        allProducts = allProducts.concat(data ?? []);
+        if (!data || data.length < pageSize) break;
         from += pageSize;
       }
 
@@ -891,7 +889,7 @@ function App() {
     try {
       const { data, error } = await supabase
         .from("customers")
-        .select("id, name, whatsapp, address, notes, created_at")
+        .select("id, name, whatsapp, address, notes, created_at, updated_at")
         .order("name", { ascending: true });
 
       if (error) {
@@ -908,7 +906,10 @@ function App() {
         address: String(customer.address ?? "").trim(),
         notes: String(customer.notes ?? "").trim(),
         createdAt: String(customer.created_at ?? new Date().toISOString()),
+        updatedAt: String(customer.updated_at ?? customer.created_at ?? new Date().toISOString()),
       })));
+    } catch (error: any) {
+      setOrderError(error?.message || "Gagal memuat toko.");
     } finally {
       setCustomersLoading(false);
     }
@@ -933,10 +934,11 @@ function App() {
       const normalized = (data ?? []).map(normalizeStoreOrder);
       const itemIds = normalized.map((order) => order.databaseId).filter(Boolean);
       if (itemIds.length) {
-        const { data: itemRows } = await supabase
+        const { data: itemRows, error: itemError } = await supabase
           .from("order_items")
           .select("*")
           .in("order_id", itemIds);
+        if (itemError) throw itemError;
         const itemsByOrder = new Map<string, OrderItem[]>();
         (itemRows ?? []).forEach((item: any) => {
           const orderId = String(item.order_id);
@@ -1212,7 +1214,7 @@ function App() {
 
       return products.filter(
         (product) =>
-          `${product.name} ${product.category} ${product.description ?? ""}`
+          `${product.name} ${product.product_code ?? ""} ${product.category} ${product.description ?? ""}`
             .toLowerCase()
             .includes(keyword),
       );
@@ -1293,14 +1295,14 @@ function App() {
     if (keyword.length < 2) return [];
 
     return products
-      .filter((product) => `${product.name} ${product.category} SKU-${product.id}`.toLowerCase().includes(keyword))
+      .filter((product) => `${product.name} ${product.product_code ?? ""} ${product.category}`.toLowerCase().includes(keyword))
       .slice(0, 8);
   }, [products, orderProductSearch]);
 
   useEffect(() => {
     if (!selectedOrderProduct) return;
 
-    setOrderCode(`SKU-${selectedOrderProduct.id}`);
+    setOrderCode(selectedOrderProduct.product_code ?? "");
     setOrderPrice(String(getPrice(selectedOrderProduct, Number(orderQuantity) || 1)));
   }, [orderProductId, orderQuantity, products]);
 
@@ -1417,6 +1419,59 @@ function App() {
     setNewCustomerOpen(false);
   };
 
+  const openCustomerEditor = (customer: Customer) => {
+    setEditingCustomer(customer);
+    setCustomerEditor({
+      name: customer.name,
+      whatsapp: customer.whatsapp,
+      address: customer.address,
+      notes: customer.notes,
+    });
+  };
+
+  const updateCustomer = async () => {
+    if (!editingCustomer || !customerEditor.name.trim() || savingCustomer) return;
+    setSavingCustomer(true);
+    setOrderError("");
+    try {
+      const { data, error } = await supabase
+        .from("customers")
+        .update({
+          name: customerEditor.name.trim(),
+          whatsapp: customerEditor.whatsapp.trim() || null,
+          address: customerEditor.address.trim() || null,
+          notes: customerEditor.notes.trim() || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", editingCustomer.id)
+        .select("id, name, whatsapp, address, notes, created_at, updated_at")
+        .single();
+
+      if (error || !data) throw new Error(error?.message || "Toko belum berhasil diperbarui.");
+
+      const updated: Customer = {
+        id: String(data.id),
+        name: String(data.name ?? "").trim(),
+        whatsapp: String(data.whatsapp ?? "").trim(),
+        address: String(data.address ?? "").trim(),
+        notes: String(data.notes ?? "").trim(),
+        createdAt: String(data.created_at ?? editingCustomer.createdAt),
+        updatedAt: String(data.updated_at ?? new Date().toISOString()),
+      };
+      setCustomers((items) => items.map((item) => item.id === updated.id ? updated : item));
+      if (selectedCustomerId === updated.id) {
+        setOrderStoreName(updated.name);
+        setCustomerSearch(updated.name);
+      }
+      setEditingCustomer(null);
+    } catch (error: any) {
+      setOrderError(error?.message || "Toko belum berhasil diperbarui.");
+      alert(`Toko belum berhasil diperbarui.\n\n${error?.message || "Terjadi kesalahan."}`);
+    } finally {
+      setSavingCustomer(false);
+    }
+  };
+
   const startEditOrder = (order: StoreOrder) => {
     setEditingOrderId(order.id);
     setOrderStoreName(order.storeName);
@@ -1451,20 +1506,24 @@ function App() {
 
   const deleteOrder = async (order: StoreOrder) => {
     if (!window.confirm(`Hapus pesanan ${order.id} dari ${order.storeName}?`)) return;
-    saveOrders(orders.filter((item) => item.id !== order.id));
     const { error } = await supabase.from("orders").delete().eq("order_number", order.id);
-    if (error && !/relation .*orders.* does not exist|could not find the table/i.test(error.message)) {
+    if (error) {
       setOrderError(error.message);
+      alert(`Pesanan gagal dihapus.\n\n${error.message}`);
+      return;
     }
+    saveOrders(orders.filter((item) => item.id !== order.id));
     if (editingOrderId === order.id) resetOrderForm();
   };
 
   const updateOrderStatus = async (order: StoreOrder, deliveryStatus: StoreOrder["deliveryStatus"]) => {
-    saveOrders(orders.map((item) => item.id === order.id ? { ...item, deliveryStatus } : item));
     const { error } = await supabase.from("orders").update({ delivery_status: deliveryStatus }).eq("order_number", order.id);
-    if (error && !/relation .*orders.* does not exist|could not find the table/i.test(error.message)) {
+    if (error) {
       setOrderError(error.message);
+      alert(`Status pesanan gagal diperbarui.\n\n${error.message}`);
+      return;
     }
+    saveOrders(orders.map((item) => item.id === order.id ? { ...item, deliveryStatus } : item));
   };
 
   const addOrderItem = () => {
@@ -1475,7 +1534,7 @@ function App() {
 
     const nextItem = {
       productId: selectedOrderProduct.id,
-      code: orderCode.trim() || `SKU-${selectedOrderProduct.id}`,
+      code: orderCode.trim() || selectedOrderProduct.product_code || "",
       productName: selectedOrderProduct.name,
       quantity: Number(orderQuantity),
       price: priceNumber(orderPrice),
@@ -1514,12 +1573,41 @@ function App() {
     const wasEditing = Boolean(editingOrderId);
     const existingOrder = editingOrderId ? orders.find((item) => item.id === editingOrderId) : undefined;
     const nextPaymentStatus = paymentMethod === "piutang" ? "piutang" : paymentStatus;
+    let itemsForSave = orderItems;
+    if (!wasEditing) {
+      const productIds = Array.from(new Set(orderItems.map((item) => item.productId).filter((id): id is number => id !== null)));
+      const { data: latestProducts, error: latestProductsError } = await supabase
+        .from("products")
+        .select("id, product_code, name, category, image, retail, wholesale, super_wholesale, badge, description")
+        .in("id", productIds);
+      if (latestProductsError) {
+        setOrderError(latestProductsError.message);
+        alert(`Harga terbaru gagal dimuat. Pesanan belum disimpan.\n\n${latestProductsError.message}`);
+        setSavingOrder(false);
+        return;
+      }
+      const latestById = new Map((latestProducts ?? []).map((product: any) => [Number(product.id), normalizeProduct(product)]));
+      if (latestById.size !== productIds.length) {
+        setOrderError("Ada produk pesanan yang sudah tidak tersedia di Supabase.");
+        alert("Ada produk pesanan yang sudah tidak tersedia di Supabase. Pesanan belum disimpan.");
+        setSavingOrder(false);
+        return;
+      }
+      itemsForSave = orderItems.map((item) => {
+        const latest = latestById.get(item.productId as number)!;
+        return {
+          ...item,
+          productName: latest.name,
+          price: getPrice(latest, item.quantity),
+        };
+      });
+    }
     const order: StoreOrder = {
       id: editingOrderId || `TRX-${Date.now().toString(36).toUpperCase()}`,
       storeName: orderStoreName.trim(),
       customerId: selectedCustomerId || null,
       orderDate,
-      items: orderItems,
+      items: itemsForSave,
       createdAt: existingOrder?.createdAt || new Date().toISOString(),
       deliveryStatus: existingOrder?.deliveryStatus || "belum_diantar",
       paymentMethod,
@@ -1554,9 +1642,27 @@ function App() {
       databaseOrderId = data?.id ? String(data.id) : databaseOrderId;
       orderErrorMessage = error?.message ?? "";
     }
-    if (databaseOrderId) {
-      await supabase.from("order_items").delete().eq("order_id", databaseOrderId);
-      const { error } = await supabase.from("order_items").insert(order.items.map((item) => ({
+    if (orderErrorMessage) {
+      setOrderError(orderErrorMessage);
+      alert(`Pesanan belum tersimpan ke Supabase: ${orderErrorMessage}`);
+      setSavingOrder(false);
+      return;
+    }
+    if (!databaseOrderId) {
+      const message = "Supabase tidak mengembalikan ID pesanan.";
+      setOrderError(message);
+      alert(message);
+      setSavingOrder(false);
+      return;
+    }
+    const { error: deleteItemsError } = await supabase.from("order_items").delete().eq("order_id", databaseOrderId);
+    if (deleteItemsError) {
+      setOrderError(deleteItemsError.message);
+      alert(`Item pesanan belum tersimpan.\n\n${deleteItemsError.message}`);
+      setSavingOrder(false);
+      return;
+    }
+    const { error: insertItemsError } = await supabase.from("order_items").insert(order.items.map((item) => ({
         order_id: databaseOrderId,
         product_id: item.productId,
         product_name: item.productName,
@@ -1565,11 +1671,9 @@ function App() {
         unit_price: item.price,
         subtotal: item.quantity * item.price,
       })));
-      orderErrorMessage = orderErrorMessage || error?.message || "";
-    }
-    if (orderErrorMessage && !/relation .*orders.* does not exist|could not find the table/i.test(orderErrorMessage)) {
-      setOrderError(orderErrorMessage);
-      alert(`Pesanan belum tersimpan ke Supabase: ${orderErrorMessage}`);
+    if (insertItemsError) {
+      setOrderError(insertItemsError.message);
+      alert(`Item pesanan belum tersimpan.\n\n${insertItemsError.message}`);
       setSavingOrder(false);
       return;
     }
@@ -1583,54 +1687,225 @@ function App() {
   };
 
   const createReceiptBlob = async (order: StoreOrder) => {
-    const width = 760;
-    const lineHeight = 30;
-    const height = 220 + order.items.length * lineHeight + 150;
+    const width = 900;
+    const padding = 54;
+    const headerHeight = 180;
+    const tableTop = 210;
+    const headerRowHeight = 42;
+    const rowHeight = 42;
+    const footerHeight = 150;
+    const height = tableTop + headerRowHeight + order.items.length * rowHeight + footerHeight;
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext("2d");
     if (!context) return null;
 
-    context.fillStyle = "#f8f6ef";
+    // Kertas nota putih, sama seperti tampilan preview.
+    context.fillStyle = "#ffffff";
     context.fillRect(0, 0, width, height);
-    context.fillStyle = "#26332c";
-    context.font = "700 30px DM Sans, sans-serif";
-    context.fillText("SUPER MURAH KUPANG", 48, 55);
-    context.font = "16px DM Sans, sans-serif";
-    context.fillStyle = "#69716b";
-    context.fillText("NOTA PESANAN TOKO", 48, 84);
-    context.fillText(`No. ${order.id}`, 48, 125);
-    context.fillText(`Toko: ${order.storeName}`, 48, 151);
-    context.fillText(`Tanggal: ${new Date(`${order.orderDate}T00:00:00`).toLocaleDateString("id-ID")}`, 48, 177);
-    context.strokeStyle = "#dce0d7";
-    context.beginPath();
-    context.moveTo(48, 198);
-    context.lineTo(width - 48, 198);
-    context.stroke();
 
-    let y = 235;
-    context.font = "600 15px DM Sans, sans-serif";
-    context.fillStyle = "#26332c";
-    order.items.forEach((item) => {
-      context.fillText(`${item.code}  ${item.productName}`, 48, y);
-      context.textAlign = "right";
-      context.fillText(`${item.quantity} x ${formatRupiah(item.price)} = ${formatRupiah(item.price * item.quantity)}`, width - 48, y);
-      context.textAlign = "left";
-      y += lineHeight;
+    // Logo toko di pojok kanan atas.
+    // Rasio asli dipertahankan agar logo tidak gepeng.
+    const logoImage = await new Promise<HTMLImageElement | null>((resolve) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => resolve(null);
+      image.src = storeLogo;
     });
+
+    if (logoImage) {
+      const maxLogoWidth = 200;
+      const maxLogoHeight = 120;
+      const ratio = Math.min(
+        maxLogoWidth / logoImage.naturalWidth,
+        maxLogoHeight / logoImage.naturalHeight,
+        1,
+      );
+      const logoWidth = Math.max(1, logoImage.naturalWidth * ratio);
+      const logoHeight = Math.max(1, logoImage.naturalHeight * ratio);
+      context.drawImage(
+        logoImage,
+        width - padding - logoWidth,
+        24,
+        logoWidth,
+        logoHeight,
+      );
+    }
+
+    // Header
+    context.fillStyle = "#26332c";
+    context.font = "700 32px DM Sans, sans-serif";
+    context.textAlign = "left";
+    context.fillText("SUPER MURAH KUPANG", padding, 50);
+    context.font = "16px DM Sans, sans-serif";
+    context.fillStyle = "#c86743";
+    context.fillText("NOTA PESANAN TOKO", padding, 80);
+    context.fillStyle = "#69716b";
+    context.fillText(`No. ${order.id}`, padding, 122);
+    context.fillText(`Toko: ${order.storeName}`, padding, 149);
+    context.fillText(
+      `Tanggal: ${new Date(`${order.orderDate}T00:00:00`).toLocaleDateString("id-ID")}`,
+      padding,
+      176,
+    );
+
+    context.strokeStyle = "#dce0d7";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(padding, headerHeight);
+    context.lineTo(width - padding, headerHeight);
+    context.stroke();
+
+    // Tabel: Kode | Nama Barang | Qty | Harga Satuan | Total Harga
+    const tableX = padding;
+    const tableWidth = width - padding * 2;
+    const codeWidth = 120;
+    const nameWidth = 320;
+    const qtyWidth = 75;
+    const unitPriceWidth = 150;
+    const totalWidth = tableWidth - codeWidth - nameWidth - qtyWidth - unitPriceWidth;
+    const tableBottom = tableTop + headerRowHeight + order.items.length * rowHeight;
+
+    context.fillStyle = "#eef0e9";
+    context.fillRect(tableX, tableTop, tableWidth, headerRowHeight);
+
+    context.strokeStyle = "#dce0d7";
+    context.lineWidth = 1;
+    context.strokeRect(tableX, tableTop, tableWidth, tableBottom - tableTop);
+
+    let x = tableX + codeWidth;
+    context.beginPath();
+    context.moveTo(x, tableTop);
+    context.lineTo(x, tableBottom);
+    x += nameWidth;
+    context.moveTo(x, tableTop);
+    context.lineTo(x, tableBottom);
+    x += qtyWidth;
+    context.moveTo(x, tableTop);
+    context.lineTo(x, tableBottom);
+    x += unitPriceWidth;
+    context.moveTo(x, tableTop);
+    context.lineTo(x, tableBottom);
+    context.stroke();
+
+    context.fillStyle = "#526057";
+    context.font = "600 13px DM Sans, sans-serif";
+    context.textAlign = "left";
+    context.fillText("KODE", tableX + 10, tableTop + 27);
+    context.fillText("NAMA BARANG", tableX + codeWidth + 10, tableTop + 27);
+    context.textAlign = "center";
+    context.fillText(
+      "QTY",
+      tableX + codeWidth + nameWidth + qtyWidth / 2,
+      tableTop + 27,
+    );
+    context.textAlign = "right";
+    context.fillText(
+      "HARGA SATUAN",
+      tableX + codeWidth + nameWidth + qtyWidth + unitPriceWidth - 10,
+      tableTop + 27,
+    );
+    context.fillText("TOTAL HARGA", tableX + tableWidth - 10, tableTop + 27);
+
+    const truncateText = (value: string, maxWidth: number) => {
+      if (context.measureText(value).width <= maxWidth) return value;
+      let result = value;
+      while (
+        result.length > 0 &&
+        context.measureText(`${result}…`).width > maxWidth
+      ) {
+        result = result.slice(0, -1);
+      }
+      return `${result}…`;
+    };
+
+    order.items.forEach((item, index) => {
+      const y = tableTop + headerRowHeight + index * rowHeight;
+      const baseline = y + 27;
+
+      if (index % 2 === 1) {
+        context.fillStyle = "#faf9f4";
+        context.fillRect(tableX, y, tableWidth, rowHeight);
+      }
+
+      context.strokeStyle = "#e4e6df";
+      context.beginPath();
+      context.moveTo(tableX, y);
+      context.lineTo(tableX + tableWidth, y);
+      context.stroke();
+
+      context.font = "500 12px DM Sans, sans-serif";
+      context.fillStyle = "#4f5b54";
+      context.textAlign = "left";
+      context.fillText(
+        truncateText(String(item.code || "-"), codeWidth - 20),
+        tableX + 10,
+        baseline,
+      );
+
+      context.fillStyle = "#26332c";
+      context.font = "600 12px DM Sans, sans-serif";
+      context.fillText(
+        truncateText(item.productName, nameWidth - 20),
+        tableX + codeWidth + 10,
+        baseline,
+      );
+
+      context.font = "600 12px DM Sans, sans-serif";
+      context.textAlign = "center";
+      context.fillText(
+        String(item.quantity),
+        tableX + codeWidth + nameWidth + qtyWidth / 2,
+        baseline,
+      );
+
+      context.textAlign = "right";
+      context.fillStyle = "#526057";
+      context.fillText(
+        formatRupiah(item.price),
+        tableX + codeWidth + nameWidth + qtyWidth + unitPriceWidth - 10,
+        baseline,
+      );
+      context.fillStyle = "#26332c";
+      context.fillText(
+        formatRupiah(item.price * item.quantity),
+        tableX + tableWidth - 10,
+        baseline,
+      );
+    });
+
+    const totalTop = tableBottom + 24;
     context.strokeStyle = "#dce0d7";
     context.beginPath();
-    context.moveTo(48, y + 8);
-    context.lineTo(width - 48, y + 8);
+    context.moveTo(tableX, totalTop);
+    context.lineTo(tableX + tableWidth, totalTop);
     context.stroke();
-    context.font = "700 22px DM Sans, sans-serif";
-    context.fillText(`Total ${formatRupiah(orderTotal(order))}`, 48, y + 52);
-    context.font = "14px DM Sans, sans-serif";
-    context.fillStyle = "#69716b";
-    context.fillText(`${orderQuantityTotal(order)} barang - Terima kasih sudah berbelanja.`, 48, y + 88);
 
-    return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    context.fillStyle = "#26332c";
+    context.font = "700 20px DM Sans, sans-serif";
+    context.textAlign = "left";
+    context.fillText("TOTAL KESELURUHAN", tableX, totalTop + 35);
+    context.textAlign = "right";
+    context.fillText(
+      formatRupiah(orderTotal(order)),
+      tableX + tableWidth,
+      totalTop + 35,
+    );
+
+    context.fillStyle = "#69716b";
+    context.font = "14px DM Sans, sans-serif";
+    context.textAlign = "left";
+    context.fillText(
+      `${orderQuantityTotal(order)} barang - Terima kasih sudah berbelanja.`,
+      tableX,
+      totalTop + 70,
+    );
+
+    context.textAlign = "left";
+    return new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/png"),
+    );
   };
 
   const downloadReceipt = async (order: StoreOrder) => {
@@ -1779,6 +2054,7 @@ function App() {
 
     if (product) {
       setForm({
+        product_code: product.product_code || "",
         name: product.name,
         category:
           product.category,
@@ -1921,6 +2197,7 @@ function App() {
 
     try {
       const payload = {
+        product_code: form.product_code?.trim() || null,
         name,
         category,
         retail:
@@ -1936,6 +2213,7 @@ function App() {
         description:
           form.description?.trim() ||
           null,
+        updated_at: new Date().toISOString(),
       };
 
       console.log(
@@ -2690,6 +2968,14 @@ function App() {
             );
 
             return {
+              product_code: String(
+                values.kodebarang ??
+                  values.kode ??
+                  values.kodeproduk ??
+                  values.sku ??
+                  values.productcode ??
+                  "",
+              ).trim(),
               name: String(
                 values.namabarang ??
                   values.nama ??
@@ -2750,215 +3036,85 @@ function App() {
           return;
         }
 
-        /* -----------------------------------------------
-           AMBIL NAMA PRODUK YANG SUDAH ADA DI SUPABASE
-        ------------------------------------------------ */
-
-        // Ambil seluruh nama produk dari Supabase secara bertahap.
-        // Ini penting agar pengecekan duplikat tetap benar saat
-        // katalog sudah berisi lebih dari 1.000 produk.
         const existingPageSize = 1000;
         let existingFrom = 0;
-        let existingProducts: { id: number; name: string }[] = [];
+        let existingProducts: any[] = [];
 
         while (true) {
-          const {
-            data: existingPage,
-            error: existingProductsError,
-          } = await supabase
+          const { data: pageData, error: existingProductsError } = await supabase
             .from("products")
-            .select("id, name")
+            .select("*")
             .order("id", { ascending: true })
-            .range(
-              existingFrom,
-              existingFrom + existingPageSize - 1,
-            );
+            .range(existingFrom, existingFrom + existingPageSize - 1);
 
           if (existingProductsError) {
-          console.error(
-            "Gagal mengecek produk yang sudah ada:",
-            existingProductsError,
-          );
-
-            alert(
-              `Gagal mengecek katalog saat import.\n\n${existingProductsError.message}`,
-            );
-
-            return;
+            throw new Error(`Gagal membaca katalog saat import: ${existingProductsError.message}`);
           }
 
-          if (!existingPage || existingPage.length === 0) {
-            break;
-          }
-
-          existingProducts = existingProducts.concat(
-            existingPage as { id: number; name: string }[],
-          );
-
-          if (existingPage.length < existingPageSize) {
-            break;
-          }
-
+          existingProducts = existingProducts.concat(pageData ?? []);
+          if (!pageData || pageData.length < existingPageSize) break;
           existingFrom += existingPageSize;
         }
 
-        const existingNames = new Set<string>();
-
+        const existingByCode = new Map<string, any>();
+        const existingByName = new Map<string, any>();
         for (const product of existingProducts ?? []) {
-          const normalizedName = normalizeProductName(
-            product?.name,
-          );
-
-          if (normalizedName) {
-            existingNames.add(normalizedName);
-          }
+          const code = String(product.product_code ?? "").trim().toLowerCase();
+          const name = normalizeProductName(product.name);
+          if (code && !existingByCode.has(code)) existingByCode.set(code, product);
+          if (name && !existingByName.has(name)) existingByName.set(name, product);
         }
 
-        /* -----------------------------------------------
-           FILTER DUPLIKAT
-
-           Ada 2 jenis barang yang di-SKIP:
-
-           1. Nama sudah ada di Supabase.
-           2. Nama muncul lebih dari sekali di Excel.
-
-           Hanya barang yang benar-benar baru yang boleh
-           dikirim ke Supabase.
-        ------------------------------------------------ */
-
-        const namesFromExcel = new Set<string>();
-        const newProductsToInsert: typeof imported = [];
-
-        let skippedExisting = 0;
-        let skippedExcelDuplicate = 0;
-
+        const rowsByKey = new Map<string, (typeof imported)[number]>();
+        let duplicateExcel = 0;
         for (const product of imported) {
-          const normalizedName = normalizeProductName(
-            product.name,
-          );
+          const key = product.product_code
+            ? `code:${product.product_code.toLowerCase()}`
+            : `name:${normalizeProductName(product.name)}`;
+          if (rowsByKey.has(key)) duplicateExcel += 1;
+          rowsByKey.set(key, product);
+        }
 
-          // Sudah ada di database → SKIP.
-          if (existingNames.has(normalizedName)) {
-            skippedExisting += 1;
+        let insertedCount = 0;
+        let updatedCount = 0;
+        let failedCount = 0;
+        const successfulProducts: any[] = [];
+
+        for (const product of rowsByKey.values()) {
+          const codeKey = product.product_code.toLowerCase();
+          const nameKey = normalizeProductName(product.name);
+          const existing = (codeKey && existingByCode.get(codeKey)) || existingByName.get(nameKey);
+          const payload = {
+            product_code: product.product_code || null,
+            name: product.name,
+            category: product.category,
+            retail: product.retail,
+            wholesale: product.wholesale,
+            super_wholesale: product.super_wholesale,
+            image: product.image,
+            badge: product.badge || null,
+            description: product.description || null,
+            updated_at: new Date().toISOString(),
+          };
+
+          const result = existing
+            ? await supabase.from("products").update(payload).eq("id", existing.id).select().single()
+            : await supabase.from("products").insert(payload).select().single();
+
+          if (result.error || !result.data) {
+            failedCount += 1;
+            console.error("Produk gagal diimport:", product.name, result.error);
             continue;
           }
 
-          // Muncul dua kali atau lebih dalam Excel → SKIP.
-          if (namesFromExcel.has(normalizedName)) {
-            skippedExcelDuplicate += 1;
-            continue;
-          }
-
-          namesFromExcel.add(normalizedName);
-          newProductsToInsert.push(product);
-        }
-
-        console.log("=== HASIL FILTER IMPORT EXCEL ===");
-        console.log("Total baris valid Excel:", imported.length);
-        console.log(
-          "Sudah ada di Supabase (SKIP):",
-          skippedExisting,
-        );
-        console.log(
-          "Duplikat di Excel (SKIP):",
-          skippedExcelDuplicate,
-        );
-        console.log(
-          "Produk baru yang akan diinsert:",
-          newProductsToInsert.length,
-        );
-
-        /* -----------------------------------------------
-           SEMUA PRODUK SUDAH ADA / DUPLIKAT
-        ------------------------------------------------ */
-
-        if (!newProductsToInsert.length) {
-          alert(
-            [
-              "Import selesai.",
-              "",
-              `Total baris valid: ${imported.length}`,
-              `Dilewati karena sudah ada: ${skippedExisting}`,
-              `Dilewati karena duplikat di Excel: ${skippedExcelDuplicate}`,
-              "",
-              "Tidak ada barang baru yang ditambahkan.",
-            ].join("\n"),
-          );
-
-          return;
-        }
-
-        /* -----------------------------------------------
-           INSERT KE SUPABASE
-
-           Hanya newProductsToInsert yang dikirim.
-           Jadi barang dengan nama yang sama TIDAK ikut
-           dikirim ke Supabase.
-        ------------------------------------------------ */
-
-        let insertedProducts: any[] = [];
-
-        const {
-          data: insertedData,
-          error: insertError,
-        } = await supabase
-          .from("products")
-          .insert(newProductsToInsert)
-          .select();
-
-        if (!insertError) {
-          insertedProducts = insertedData ?? [];
-        } else {
-          /*
-           * Fallback tambahan:
-           * Jika database sudah memiliki UNIQUE constraint
-           * dan terjadi konflik saat batch insert, kita coba
-           * satu per satu. Barang yang konflik akan di-SKIP,
-           * sedangkan barang lain tetap masuk.
-           */
-          console.warn(
-            "Batch insert gagal, mencoba insert satu per satu:",
-            insertError,
-          );
-
-          for (const product of newProductsToInsert) {
-            const {
-              data: singleInserted,
-              error: singleError,
-            } = await supabase
-              .from("products")
-              .insert(product)
-              .select()
-              .single();
-
-            if (singleError) {
-              const message = String(
-                singleError.message ?? "",
-              ).toLowerCase();
-
-              // Konflik UNIQUE / duplicate → SKIP.
-              if (
-                singleError.code === "23505" ||
-                message.includes("duplicate") ||
-                message.includes("unique")
-              ) {
-                skippedExisting += 1;
-                continue;
-              }
-
-              console.error(
-                "Produk gagal diinsert:",
-                product.name,
-                singleError,
-              );
-
-              throw singleError;
-            }
-
-            if (singleInserted) {
-              insertedProducts.push(singleInserted);
-            }
-          }
+          successfulProducts.push(result.data);
+          if (existing) updatedCount += 1;
+          else insertedCount += 1;
+          const saved = result.data;
+          const savedCode = String(saved.product_code ?? "").trim().toLowerCase();
+          const savedName = normalizeProductName(saved.name);
+          if (savedCode) existingByCode.set(savedCode, saved);
+          if (savedName) existingByName.set(savedName, saved);
         }
 
         /* -----------------------------------------------
@@ -2969,8 +3125,8 @@ function App() {
         ------------------------------------------------ */
 
         const insertedForCategories =
-          insertedProducts.length
-            ? insertedProducts.map(normalizeProduct)
+          successfulProducts.length
+            ? successfulProducts.map(normalizeProduct)
             : [];
 
         const existingCategoryNames = new Set(
@@ -3025,8 +3181,8 @@ function App() {
          * apabila SELECT/realtime belum sempat memperbarui
          * daftar produk.
          */
-        if (insertedProducts.length) {
-          const normalizedInserted = insertedProducts
+        if (successfulProducts.length) {
+          const normalizedInserted = successfulProducts
             .map(normalizeProduct)
             .filter(
               (product) =>
@@ -3057,18 +3213,14 @@ function App() {
            HASIL IMPORT
         ------------------------------------------------ */
 
-        const insertedCount = insertedProducts.length;
-        const totalSkipped =
-          skippedExisting + skippedExcelDuplicate;
-
         alert(
           [
             "Import Excel selesai!",
             "",
             `Berhasil ditambahkan: ${insertedCount} barang`,
-            `Dilewati karena sudah ada: ${skippedExisting} barang`,
-            `Dilewati karena duplikat di Excel: ${skippedExcelDuplicate} barang`,
-            `Total dilewati: ${totalSkipped} barang`,
+            `Diperbarui: ${updatedCount} barang`,
+            `Duplikat Excel: ${duplicateExcel}`,
+            `Gagal: ${failedCount}`,
           ].join("\n"),
         );
       } catch (error) {
@@ -3874,18 +4026,37 @@ function App() {
               )}
             </strong>
 
-            <button
-              className="primary-btn"
-              onClick={checkout}
-              disabled={
-                !cartItems.length
-              }
-            >
-              Checkout via WhatsApp{" "}
-              <MessageCircle
-                size={17}
-              />
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => setCartOpen(true)}
+                disabled={!cartItems.length}
+                style={{
+                  minHeight: "46px",
+                  padding: "0 18px",
+                  border: "1px solid rgba(255,255,255,0.28)",
+                  background: "transparent",
+                  color: "inherit",
+                  font: "inherit",
+                  fontWeight: 700,
+                  cursor: cartItems.length ? "pointer" : "not-allowed",
+                  opacity: cartItems.length ? 1 : 0.55,
+                }}
+              >
+                Lihat keranjang
+              </button>
+
+              <button
+                className="primary-btn"
+                onClick={checkout}
+                disabled={!cartItems.length}
+              >
+                Checkout via WhatsApp{" "}
+                <MessageCircle
+                  size={17}
+                />
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -4674,6 +4845,10 @@ function App() {
                                   }
                                 </strong>
 
+                                {product.product_code && (
+                                  <small>Kode: {product.product_code}</small>
+                                )}
+
                                 <small>
                                   {
                                     product.retail
@@ -4830,6 +5005,9 @@ function App() {
                               }}><strong>{customer.name}</strong><small>{customer.whatsapp || "Nomor WhatsApp belum diisi"}</small></button>)}
                               {!customerMatches.length && <p>Toko belum ditemukan.</p>}
                             </div>}
+                            {selectedCustomerId && customers.find((customer) => customer.id === selectedCustomerId) && (
+                              <button type="button" className="new-customer-btn" onClick={() => openCustomerEditor(customers.find((customer) => customer.id === selectedCustomerId) as Customer)}><Pencil size={13} /> Edit toko</button>
+                            )}
                             <button type="button" className="new-customer-btn" onClick={() => setNewCustomerOpen((open) => !open)}><Plus size={13} /> Tambah toko baru</button>
                           </label>
 
@@ -4882,7 +5060,7 @@ function App() {
                                       }}
                                     >
                                       <span>{product.name}</span>
-                                      <small>{product.category} · SKU-{product.id}</small>
+                                      <small>{product.category}{product.product_code ? ` · ${product.product_code}` : ""} · {formatRupiah(getPrice(product, Number(orderQuantity) || 1))}</small>
                                     </button>
                                   ))}
                                   {!orderProductMatches.length && <p>Tidak ada barang ditemukan.</p>}
@@ -4891,7 +5069,7 @@ function App() {
                             </label>
                             <label>
                               Kode barang
-                              <input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} placeholder="SKU-001" />
+                              <input value={orderCode} onChange={(e) => setOrderCode(e.target.value)} placeholder="Kode barang (opsional)" />
                             </label>
                             <label>
                               Qty
@@ -5251,19 +5429,291 @@ function App() {
         </div>
       )}
 
+      {cartOpen && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setCartOpen(false)}
+          style={{ zIndex: 1200, padding: "20px", overflowY: "auto" }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "min(760px, 100%)",
+              maxHeight: "min(82vh, 760px)",
+              overflow: "hidden",
+              background: "#f8f7f3",
+              color: "#27332f",
+              borderRadius: "14px",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.28)",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div
+              style={{
+                padding: "22px 24px 18px",
+                borderBottom: "1px solid rgba(39,51,47,0.12)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "16px",
+              }}
+            >
+              <div>
+                <p style={{ margin: 0, fontSize: "11px", letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.6 }}>
+                  Belanja Anda
+                </p>
+                <h3 style={{ margin: "5px 0 0", fontSize: "24px" }}>
+                  Keranjang
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCartOpen(false)}
+                aria-label="Tutup keranjang"
+                style={{
+                  width: "38px",
+                  height: "38px",
+                  border: "none",
+                  background: "transparent",
+                  color: "inherit",
+                  cursor: "pointer",
+                  display: "grid",
+                  placeItems: "center",
+                }}
+              >
+                <X size={22} />
+              </button>
+            </div>
+
+            <div style={{ padding: "8px 24px 20px", overflowY: "auto" }}>
+              {!cartItems.length ? (
+                <div style={{ padding: "44px 12px", textAlign: "center", opacity: 0.65 }}>
+                  Keranjang masih kosong.
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", flexDirection: "column" }}>
+                    {cartItems.map((product) => {
+                      const quantity = cart[product.id] || 0;
+                      const unitPrice = getPrice(product, quantity);
+                      const lineTotal = unitPrice * quantity;
+
+                      return (
+                        <div
+                          key={product.id}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "64px minmax(0, 1fr) auto",
+                            alignItems: "center",
+                            gap: "14px",
+                            padding: "16px 0",
+                            borderBottom: "1px solid rgba(39,51,47,0.10)",
+                          }}
+                        >
+                          <img
+                            src={product.image || getDefaultCategoryImage(product.category)}
+                            alt={product.name}
+                            style={{
+                              width: "64px",
+                              height: "64px",
+                              objectFit: "cover",
+                              borderRadius: "8px",
+                              background: "#eceae4",
+                            }}
+                          />
+
+                          <div style={{ minWidth: 0 }}>
+                            {product.product_code && (
+                              <div style={{ fontSize: "11px", letterSpacing: "0.06em", opacity: 0.55, marginBottom: "4px" }}>
+                                Kode: {product.product_code}
+                              </div>
+                            )}
+
+                            <strong style={{ display: "block", fontSize: "15px", lineHeight: 1.35 }}>
+                              {product.name}
+                            </strong>
+
+                            <div style={{ marginTop: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
+                              <button
+                                type="button"
+                                onClick={() => changeCartQuantity(product.id, quantity - 1)}
+                                style={{
+                                  width: "32px",
+                                  height: "32px",
+                                  borderRadius: "50%",
+                                  border: "1px solid rgba(39,51,47,0.16)",
+                                  background: "#fff",
+                                  color: "inherit",
+                                  cursor: "pointer",
+                                  fontSize: "18px",
+                                  lineHeight: 1,
+                                }}
+                              >
+                                −
+                              </button>
+
+                              <strong style={{ minWidth: "26px", textAlign: "center" }}>
+                                {quantity}
+                              </strong>
+
+                              <button
+                                type="button"
+                                onClick={() => addToCart(product)}
+                                style={{
+                                  width: "32px",
+                                  height: "32px",
+                                  borderRadius: "50%",
+                                  border: "none",
+                                  background: "#c86743",
+                                  color: "#fff",
+                                  cursor: "pointer",
+                                  fontSize: "20px",
+                                  lineHeight: 1,
+                                }}
+                              >
+                                +
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => changeCartQuantity(product.id, 0)}
+                                style={{
+                                  marginLeft: "4px",
+                                  border: "none",
+                                  background: "transparent",
+                                  color: "#9b5542",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  padding: "7px 6px",
+                                }}
+                              >
+                                Hapus
+                              </button>
+                            </div>
+                          </div>
+
+                          <div style={{ textAlign: "right", alignSelf: "center" }}>
+                            <strong style={{ display: "block", fontSize: "14px", whiteSpace: "nowrap" }}>
+                              {formatRupiah(lineTotal)}
+                            </strong>
+                            <small style={{ display: "block", marginTop: "4px", opacity: 0.58, whiteSpace: "nowrap" }}>
+                              {formatRupiah(unitPrice)} / pcs
+                            </small>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: "18px",
+                      paddingTop: "18px",
+                      borderTop: "1px solid rgba(39,51,47,0.16)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "16px",
+                    }}
+                  >
+                    <div>
+                      <small style={{ display: "block", opacity: 0.6 }}>
+                        Total {totalQuantity} pcs
+                      </small>
+                      <strong style={{ display: "block", marginTop: "4px", fontSize: "22px" }}>
+                        {formatRupiah(
+                          cartItems.reduce(
+                            (sum, product) =>
+                              sum +
+                              getPrice(product, cart[product.id]) *
+                                cart[product.id],
+                            0,
+                          ),
+                        )}
+                      </strong>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="primary-btn"
+                      onClick={() => {
+                        setCartOpen(false);
+                        checkout();
+                      }}
+                    >
+                      Checkout via WhatsApp <MessageCircle size={17} />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedReceipt && (
         <div className="modal-backdrop" onClick={() => setSelectedReceipt(null)}>
           <div className="receipt-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="receipt-paper" id="receipt-preview">
+            <div
+              className="receipt-paper"
+              id="receipt-preview"
+              style={{ position: "relative", background: "#ffffff" }}
+            >
+              <img
+                src={storeLogo}
+                alt="Logo SUPER MURAH KUPANG"
+                style={{
+                  position: "absolute",
+                  top: 5,
+                  right: 0,
+                  width: 120,
+                  height: "auto",
+                  maxHeight: 200,
+                  objectFit: "contain",
+                }}
+              />
               <div className="receipt-brand">SUPER MURAH KUPANG</div>
               <p className="receipt-label">NOTA PESANAN TOKO</p>
-              <div className="receipt-meta"><span>No. {selectedReceipt.id}</span><span>{new Date(`${selectedReceipt.orderDate}T00:00:00`).toLocaleDateString("id-ID")}</span></div>
-              <strong className="receipt-store">{selectedReceipt.storeName}</strong>
-              <div className="receipt-lines">
-                {selectedReceipt.items.map((item, index) => <div key={`${item.productId}-${index}`}><div><strong>{item.productName}</strong><small>{item.code} - {item.quantity} x {formatRupiah(item.price)}</small></div><strong>{formatRupiah(item.price * item.quantity)}</strong></div>)}
+              <div className="receipt-meta">
+                <span>No. {selectedReceipt.id}</span>
+                <span>{new Date(`${selectedReceipt.orderDate}T00:00:00`).toLocaleDateString("id-ID")}</span>
               </div>
-              <div className="receipt-total"><span>Total {orderQuantityTotal(selectedReceipt)} pcs</span><strong>{formatRupiah(orderTotal(selectedReceipt))}</strong></div>
-              <p className="receipt-thanks">Terima kasih sudah berbelanja.</p>
+              <strong className="receipt-store">{selectedReceipt.storeName}</strong>
+
+              <div style={{ marginTop: 22, border: "1px solid #dce0d7", borderRadius: 10, overflow: "hidden", background: "#fbfaf6" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: "#eef0e9", color: "#526057" }}>
+                      <th style={{ width: "18%", padding: "10px 9px", textAlign: "left", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Kode</th>
+                      <th style={{ width: "34%", padding: "10px 9px", textAlign: "left", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Nama Barang</th>
+                      <th style={{ width: "10%", padding: "10px 7px", textAlign: "center", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Qty</th>
+                      <th style={{ width: "18%", padding: "10px 9px", textAlign: "right", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Harga Satuan</th>
+                      <th style={{ width: "20%", padding: "10px 9px", textAlign: "right", fontWeight: 600, borderBottom: "1px solid #dce0d7" }}>Total Harga</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedReceipt.items.map((item, index) => (
+                      <tr key={`${item.productId}-${index}`} style={{ background: index % 2 === 1 ? "#faf9f4" : "transparent" }}>
+                        <td style={{ padding: "10px 9px", color: "#69716b", borderBottom: "1px solid #e7e8e2", verticalAlign: "top", wordBreak: "break-word" }}>{item.code || "-"}</td>
+                        <td style={{ padding: "10px 9px", color: "#26332c", fontWeight: 600, borderBottom: "1px solid #e7e8e2", verticalAlign: "top", wordBreak: "break-word" }}>{item.productName}</td>
+                        <td style={{ padding: "10px 7px", color: "#526057", fontWeight: 600, textAlign: "center", borderBottom: "1px solid #e7e8e2", verticalAlign: "top" }}>{item.quantity}</td>
+                        <td style={{ padding: "10px 9px", color: "#526057", fontWeight: 600, textAlign: "right", borderBottom: "1px solid #e7e8e2", verticalAlign: "top", whiteSpace: "nowrap" }}>{formatRupiah(item.price)}</td>
+                        <td style={{ padding: "10px 9px", color: "#26332c", fontWeight: 600, textAlign: "right", borderBottom: "1px solid #e7e8e2", verticalAlign: "top", whiteSpace: "nowrap" }}>{formatRupiah(item.price * item.quantity)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={4} style={{ padding: "13px 9px", color: "#526057", fontWeight: 600, borderTop: "1px solid #dce0d7" }}>Total Keseluruhan</td>
+                      <td style={{ padding: "13px 9px", color: "#26332c", fontWeight: 700, textAlign: "right", borderTop: "1px solid #dce0d7", whiteSpace: "nowrap" }}>{formatRupiah(orderTotal(selectedReceipt))}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              <p className="receipt-thanks" style={{ marginTop: 18 }}>{orderQuantityTotal(selectedReceipt)} barang - Terima kasih sudah berbelanja.</p>
             </div>
             <div className="receipt-actions">
               <button className="secondary-btn" onClick={() => copyReceipt(selectedReceipt)}><Clipboard size={15} /> Salin gambar</button>
@@ -5271,6 +5721,27 @@ function App() {
               <button className="close-modal" onClick={() => setSelectedReceipt(null)}><X /></button>
             </div>
           </div>
+        </div>
+      )}
+
+      {isAdmin && editingCustomer && (
+        <div className="editor-overlay" onClick={() => setEditingCustomer(null)}>
+          <form className="product-editor" onSubmit={(event) => { event.preventDefault(); updateCustomer(); }} onClick={(event) => event.stopPropagation()}>
+            <div className="editor-head">
+              <div>
+                <p className="eyebrow">Master toko</p>
+                <h2>Edit toko.</h2>
+              </div>
+              <button type="button" className="close-modal" onClick={() => setEditingCustomer(null)}><X /></button>
+            </div>
+            <div className="editor-grid">
+              <label>Nama toko<input value={customerEditor.name} onChange={(event) => setCustomerEditor((current) => ({ ...current, name: event.target.value }))} required /></label>
+              <label>WhatsApp<input value={customerEditor.whatsapp} onChange={(event) => setCustomerEditor((current) => ({ ...current, whatsapp: event.target.value }))} /></label>
+              <label>Alamat<input value={customerEditor.address} onChange={(event) => setCustomerEditor((current) => ({ ...current, address: event.target.value }))} /></label>
+              <label>Catatan<textarea value={customerEditor.notes} onChange={(event) => setCustomerEditor((current) => ({ ...current, notes: event.target.value }))} /></label>
+            </div>
+            <button className="primary-btn" disabled={savingCustomer}>{savingCustomer ? "Menyimpan..." : "Simpan perubahan"}</button>
+          </form>
         </div>
       )}
 
@@ -5314,6 +5785,21 @@ function App() {
               </div>
 
               <div className="editor-grid">
+                <label>
+                  Kode barang
+
+                  <input
+                    value={form.product_code || ""}
+                    onChange={(e) =>
+                      setForm((current) => ({
+                        ...current,
+                        product_code: e.target.value,
+                      }))
+                    }
+                    placeholder="Contoh: BRG001"
+                  />
+                </label>
+
                 <label>
                   Nama produk
 
