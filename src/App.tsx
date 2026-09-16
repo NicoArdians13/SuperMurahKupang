@@ -719,34 +719,55 @@ function App() {
     setProductsError("");
 
     try {
-      const {
-        data,
-        error,
-      } = await supabase
-        .from("products")
-        .select("*")
-        .order("id", {
-          ascending: true,
-        });
+      // Supabase membatasi hasil query default. Ambil produk bertahap
+      // agar seluruh katalog (termasuk >1.000 produk) tetap dimuat.
+      const pageSize = 1000;
+      let from = 0;
+      let allProducts: any[] = [];
 
-      if (error) {
-        console.error(
-          "Gagal mengambil products dari Supabase:",
+      while (true) {
+        const {
+          data,
           error,
-        );
+        } = await supabase
+          .from("products")
+          .select("*")
+          .order("id", {
+            ascending: true,
+          })
+          .range(from, from + pageSize - 1);
 
-        setProductsError(
-          error.message ||
-            "Gagal memuat katalog produk.",
-        );
+        if (error) {
+          console.error(
+            "Gagal mengambil products dari Supabase:",
+            error,
+          );
 
-        setProducts([]);
+          setProductsError(
+            error.message ||
+              "Gagal memuat katalog produk.",
+          );
 
-        return;
+          setProducts([]);
+
+          return;
+        }
+
+        if (!data || data.length === 0) {
+          break;
+        }
+
+        allProducts = allProducts.concat(data);
+
+        if (data.length < pageSize) {
+          break;
+        }
+
+        from += pageSize;
       }
 
       const normalizedProducts =
-        (data ?? [])
+        allProducts
           .map(normalizeProduct)
           .filter(
             (product) =>
@@ -2733,24 +2754,52 @@ function App() {
            AMBIL NAMA PRODUK YANG SUDAH ADA DI SUPABASE
         ------------------------------------------------ */
 
-        const {
-          data: existingProducts,
-          error: existingProductsError,
-        } = await supabase
-          .from("products")
-          .select("id, name");
+        // Ambil seluruh nama produk dari Supabase secara bertahap.
+        // Ini penting agar pengecekan duplikat tetap benar saat
+        // katalog sudah berisi lebih dari 1.000 produk.
+        const existingPageSize = 1000;
+        let existingFrom = 0;
+        let existingProducts: { id: number; name: string }[] = [];
 
-        if (existingProductsError) {
+        while (true) {
+          const {
+            data: existingPage,
+            error: existingProductsError,
+          } = await supabase
+            .from("products")
+            .select("id, name")
+            .order("id", { ascending: true })
+            .range(
+              existingFrom,
+              existingFrom + existingPageSize - 1,
+            );
+
+          if (existingProductsError) {
           console.error(
             "Gagal mengecek produk yang sudah ada:",
             existingProductsError,
           );
 
-          alert(
-            `Gagal mengecek katalog saat import.\n\n${existingProductsError.message}`,
+            alert(
+              `Gagal mengecek katalog saat import.\n\n${existingProductsError.message}`,
+            );
+
+            return;
+          }
+
+          if (!existingPage || existingPage.length === 0) {
+            break;
+          }
+
+          existingProducts = existingProducts.concat(
+            existingPage as { id: number; name: string }[],
           );
 
-          return;
+          if (existingPage.length < existingPageSize) {
+            break;
+          }
+
+          existingFrom += existingPageSize;
         }
 
         const existingNames = new Set<string>();
