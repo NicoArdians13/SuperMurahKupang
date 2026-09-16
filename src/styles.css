@@ -2912,303 +2912,503 @@ em {
   }
 }
 /* =========================================================
-   MOBILE — NAVBAR + HERO FINAL
-   Footer TETAP seperti versi sekarang
-   Desktop TIDAK berubah
+   MOBILE — HEADER + HERO
+   Gaya mengikuti desktop
+   FOOTER & BAGIAN TENGAH TIDAK DISENTUH
    ========================================================= */
 
 @media (max-width: 800px) {
 
-  /* =========================
-     NAVBAR
-     ========================= */
+    /* -----------------------------------------------------
+       CONTAINER
+       ----------------------------------------------------- */
 
-  .nav {
-    width: 100%;
-    max-width: 100%;
-    height: 68px;
-    min-height: 68px;
-
-    padding: 0 16px;
-    margin: 0;
-
-    display: flex;
-    align-items: center;
-    gap: 8px;
-
-    box-sizing: border-box;
-    overflow: hidden;
-  }
-
-  .store-logo {
-    width: 92px;
-    height: 48px;
-
-    max-width: 92px;
-    flex: 0 0 92px;
-
-    object-fit: contain;
-    object-position: left center;
-
-    display: block;
-    margin: 0;
-  }
-
-  .brand {
-    flex: 1 1 auto;
-    min-width: 0;
-    max-width: none;
-
-    font-size: 20px;
-    line-height: 1;
-
-    letter-spacing: -0.045em;
-
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-
-    white-space: nowrap;
-    overflow: hidden;
-  }
-
-  .brand small {
-    display: block;
-    width: auto;
-
-    margin-left: 5px;
-    margin-top: 0;
-
-    font-size: 9px;
-    line-height: 1;
-
-    letter-spacing: 0.07em;
-
-    white-space: nowrap;
-  }
-
-  .nav-actions {
-    flex: 0 0 auto;
-
-    display: flex;
-    align-items: center;
-    gap: 5px;
-
-    margin-left: auto;
-  }
-
-  .order-btn {
-    width: 48px;
-    height: 42px;
-
-    padding: 0;
-
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    font-size: 0;
-
-    gap: 0;
-
-    flex-shrink: 0;
-  }
-
-  .order-btn svg {
-    width: 21px;
-    height: 21px;
-  }
-
-  .menu-btn {
-    width: 38px;
-    height: 38px;
-
-    padding: 4px;
-
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    flex-shrink: 0;
-  }
-
-  .menu-btn svg {
-    width: 27px;
-    height: 27px;
-  }
+    .shell {
+        width: calc(100% - 32px);
+        max-width: none;
+    }
 
 
-  /* =========================
-     HERO
-     ========================= */
+    /* -----------------------------------------------------
+       ANNOUNCEMENT
+       ----------------------------------------------------- */
 
-  .hero {
-    width: 100%;
-    max-width: 100%;
-    min-height: 0;
+    .announcement {
+        height: 34px;
+        min-height: 34px;
 
-    box-sizing: border-box;
-  }
+        padding: 0 14px;
 
-  .hero-copy {
-    width: 100%;
-    max-width: 100%;
+        font-size: 9px;
+        letter-spacing: 0.04em;
 
-    padding: 42px 24px 32px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
 
-    box-sizing: border-box;
-  }
 
-  .eyebrow {
-    font-size: 10px;
-    line-height: 1.4;
+    /* -----------------------------------------------------
+       NAVBAR
+       ----------------------------------------------------- */
 
-    letter-spacing: 0.18em;
+    .nav {
+        width: 100%;
 
-    margin-bottom: 16px;
+        height: 82px;
+        min-height: 82px;
 
-    white-space: normal;
-  }
+        padding: 0 0;
 
-  .hero h1 {
-    font-size: clamp(38px, 10.5vw, 48px);
+        display: flex;
+        align-items: center;
 
-    line-height: 1.04;
-    letter-spacing: -0.055em;
+        gap: 10px;
 
-    max-width: 100%;
+        position: relative;
+        z-index: 10;
+    }
 
-    margin: 0;
-  }
 
-  .hero-text {
-    max-width: 100%;
+    /* LOGO + NAMA TOKO */
 
-    margin: 22px 0 25px;
+    .brand {
+        display: flex;
+        align-items: center;
 
-    font-size: 14px;
-    line-height: 1.65;
-  }
+        flex: 1 1 auto;
+        min-width: 0;
 
-  .hero-actions {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
+        font-size: 24px;
+        line-height: 1;
 
-    gap: 14px;
+        letter-spacing: -0.055em;
 
-    width: 100%;
-  }
+        white-space: nowrap;
+        overflow: visible;
+    }
 
-  .hero-actions .btn {
-    min-height: 48px;
 
-    padding: 0 20px;
+    .store-logo {
+        width: 92px;
+        height: 58px;
 
-    font-size: 14px;
-  }
+        flex: 0 0 92px;
 
-  /* Gambar hero */
-  .hero-image {
-    width: 100%;
-    max-width: 100%;
+        object-fit: contain;
+        object-position: left center;
 
-    margin: 0;
+        margin-right: 9px;
+    }
 
-    box-sizing: border-box;
-  }
 
-  .hero-image img {
-    width: 100%;
-    max-width: 100%;
-    height: auto;
+    .brand-dot {
+        margin-left: 1px;
+    }
 
-    display: block;
 
-    object-fit: cover;
-  }
+    .brand small {
+        display: inline-block;
+
+        margin-left: 6px;
+
+        font-size: 9px;
+        line-height: 1;
+
+        letter-spacing: 0.06em;
+
+        color: var(--terracotta);
+    }
+
+
+    /* -----------------------------------------------------
+       NAV ACTIONS
+       ----------------------------------------------------- */
+
+    .nav-actions {
+        display: flex;
+        align-items: center;
+
+        gap: 5px;
+
+        flex: 0 0 auto;
+    }
+
+
+    .admin-link {
+        display: none;
+    }
+
+
+    .order-btn {
+        width: 48px;
+        height: 46px;
+
+        padding: 0;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        font-size: 0;
+
+        flex-shrink: 0;
+    }
+
+
+    .order-btn svg {
+        width: 23px;
+        height: 23px;
+    }
+
+
+    .menu-btn {
+        width: 42px;
+        height: 42px;
+
+        padding: 4px;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        flex-shrink: 0;
+    }
+
+
+    .menu-btn svg {
+        width: 28px;
+        height: 28px;
+    }
+
+
+    /* -----------------------------------------------------
+       MOBILE MENU
+       ----------------------------------------------------- */
+
+    .nav-links {
+        display: none;
+
+        position: absolute;
+
+        top: 76px;
+        left: 0;
+        right: 0;
+
+        margin: 0;
+
+        padding: 18px;
+
+        background: var(--cream);
+
+        border: 1px solid var(--line);
+
+        box-shadow: 0 12px 30px #26332c18;
+
+        flex-direction: column;
+
+        gap: 16px;
+
+        z-index: 50;
+    }
+
+
+    .nav-links.open {
+        display: flex;
+    }
+
+
+    /* -----------------------------------------------------
+       HERO
+       ----------------------------------------------------- */
+
+    .hero {
+        width: 100%;
+
+        display: flex;
+        flex-direction: column;
+
+        min-height: auto;
+
+        margin: 0;
+    }
+
+
+    /* -----------------------------------------------------
+       HERO TEXT
+       ----------------------------------------------------- */
+
+    .hero-copy {
+        width: 100%;
+
+        padding: 46px 0 32px;
+
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+
+    .hero-copy .eyebrow {
+        margin-bottom: 15px;
+
+        font-size: 9px;
+        line-height: 1.5;
+
+        letter-spacing: 0.19em;
+    }
+
+
+    .hero h1 {
+        width: 100%;
+
+        max-width: 500px;
+
+        font-size: clamp(40px, 11vw, 50px);
+
+        line-height: 1.04;
+
+        letter-spacing: -0.06em;
+
+        margin: 0;
+    }
+
+
+    .hero-text {
+        width: 100%;
+        max-width: 430px;
+
+        margin: 22px 0 25px;
+
+        font-size: 14px;
+        line-height: 1.7;
+
+        color: var(--muted);
+    }
+
+
+    /* -----------------------------------------------------
+       BUTTON HERO
+       ----------------------------------------------------- */
+
+    .hero-cta {
+        width: 100%;
+
+        display: flex;
+        align-items: center;
+
+        gap: 16px;
+
+        margin-top: 0;
+
+        flex-wrap: nowrap;
+    }
+
+
+    .hero-cta .primary-btn {
+        min-height: 48px;
+
+        padding: 0 20px;
+
+        font-size: 13px;
+
+        white-space: nowrap;
+    }
+
+
+    .play-btn {
+        font-size: 12px;
+
+        white-space: nowrap;
+
+        gap: 8px;
+    }
+
+
+    .play-btn span {
+        width: 29px;
+        height: 29px;
+
+        flex: 0 0 29px;
+    }
+
+
+    /* -----------------------------------------------------
+       HERO IMAGE
+       ----------------------------------------------------- */
+
+    .hero-image {
+        width: 100%;
+
+        height: 310px;
+        min-height: 310px;
+
+        position: relative;
+
+        overflow: hidden;
+
+        margin: 0;
+    }
+
+
+    .hero-image img {
+        width: 100%;
+        height: 100%;
+
+        display: block;
+
+        object-fit: cover;
+    }
+
+
+    /* Kotak kecil di atas foto */
+    .hero-note {
+        right: 0;
+        bottom: 0;
+
+        padding: 15px 18px;
+
+        font-size: 10px;
+
+        gap: 9px;
+    }
+
+
+    .hero-note .note-line {
+        width: 22px;
+    }
 }
 
 
 /* =========================================================
    HP KECIL
+   320px — 374px
    ========================================================= */
 
-@media (max-width: 360px) {
+@media (max-width: 374px) {
 
-  .nav {
-    padding: 0 11px;
-    gap: 5px;
-  }
+    .shell {
+        width: calc(100% - 28px);
+    }
 
-  .store-logo {
-    width: 78px;
-    height: 43px;
-    flex-basis: 78px;
-  }
 
-  .brand {
-    font-size: 17px;
-  }
+    .nav {
+        height: 74px;
+        min-height: 74px;
+    }
 
-  .brand small {
-    font-size: 8px;
-    margin-left: 4px;
-  }
 
-  .order-btn {
-    width: 40px;
-    height: 38px;
-  }
+    .store-logo {
+        width: 72px;
+        height: 48px;
 
-  .menu-btn {
-    width: 34px;
-    height: 34px;
-  }
+        flex-basis: 72px;
 
-  .menu-btn svg {
-    width: 24px;
-    height: 24px;
-  }
+        margin-right: 6px;
+    }
 
-  .hero-copy {
-    padding: 34px 20px 28px;
-  }
 
-  .hero h1 {
-    font-size: 37px;
-  }
+    .brand {
+        font-size: 19px;
+    }
 
-  .hero-text {
-    font-size: 13px;
-    line-height: 1.6;
-  }
+
+    .brand small {
+        font-size: 8px;
+        margin-left: 4px;
+    }
+
+
+    .order-btn {
+        width: 42px;
+        height: 40px;
+    }
+
+
+    .menu-btn {
+        width: 37px;
+        height: 37px;
+    }
+
+
+    .menu-btn svg {
+        width: 25px;
+        height: 25px;
+    }
+
+
+    .hero-copy {
+        padding-top: 38px;
+    }
+
+
+    .hero h1 {
+        font-size: 38px;
+    }
+
+
+    .hero-text {
+        font-size: 13px;
+    }
+
+
+    .hero-cta {
+        gap: 10px;
+    }
+
+
+    .hero-cta .primary-btn {
+        padding: 0 16px;
+        font-size: 12px;
+    }
+
+
+    .play-btn {
+        font-size: 11px;
+    }
+
+
+    .hero-image {
+        height: 270px;
+        min-height: 270px;
+    }
 }
 
 
 /* =========================================================
-   HP 390px KE ATAS
+   HP NORMAL
+   375px — 430px
    ========================================================= */
 
-@media (min-width: 390px) and (max-width: 800px) {
+@media (min-width: 375px) and (max-width: 430px) {
 
-  .store-logo {
-    width: 96px;
-    height: 50px;
-    flex-basis: 96px;
-  }
+    .store-logo {
+        width: 88px;
+        height: 56px;
 
-  .brand {
-    font-size: 20px;
-  }
+        flex-basis: 88px;
+    }
 
-  .hero-copy {
-    padding-top: 44px;
-  }
 
-  .hero h1 {
-    font-size: 44px;
-  }
+    .brand {
+        font-size: 22px;
+    }
+
+
+    .hero-copy {
+        padding-top: 44px;
+    }
+
+
+    .hero h1 {
+        font-size: 43px;
+    }
+
+
+    .hero-image {
+        height: 300px;
+        min-height: 300px;
+    }
 }
 /* =========================================================
    NOTA MODAL — FINAL
