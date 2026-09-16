@@ -770,7 +770,7 @@ em {
     margin-top: 1px;
     margin-left: 2px;
 
-    font-size: 55px;
+    font-size: 18px;
     font-weight :600;
     font-family :Arial, Helvetica, sans-serif;
     line-height: 1;
@@ -808,13 +808,16 @@ em {
 }
 
 .orders-panel { border-top: 1px solid var(--line); padding-top: 24px; }
+.order-error { margin: 0 0 14px; padding: 10px 12px; background: #f1dfd7; color: #9b442d; font-size: 10px; }
+.order-loading { margin: 0 0 14px; color: var(--muted); font-size: 10px; }
 .order-entry-layout { display: grid; grid-template-columns: minmax(280px, .9fr) 1.1fr; gap: 24px; }
 .order-form, .orders-summary { background: #eef1e9; padding: 22px; }
 .orders-summary { background: white; border: 1px solid var(--line); }
 .order-form-heading, .summary-heading, .order-history-head { display: flex; justify-content: space-between; align-items: flex-start; }
 .order-form h3, .orders-summary h3 { margin: 0 0 20px; font-size: 27px; font-weight: 500; }
 .order-form label, .order-filters label { display: flex; flex-direction: column; gap: 7px; margin-bottom: 13px; color: var(--muted); font-size: 10px; }
-.order-form input, .order-form select, .order-filters input { width: 100%; border: 1px solid #d6d9d0; background: white; padding: 10px; font: inherit; font-size: 11px; color: var(--ink); outline: 0; }
+.order-form input, .order-form select, .order-form textarea, .order-filters input { width: 100%; border: 1px solid #d6d9d0; background: white; padding: 10px; font: inherit; font-size: 11px; color: var(--ink); outline: 0; resize: vertical; }
+.order-form textarea { min-height: 58px; }
 .input-with-icon { display: flex; align-items: center; gap: 8px; background: white; border: 1px solid #d6d9d0; padding-left: 10px; color: var(--muted); }
 .input-with-icon input { border: 0; padding-left: 0; }
 .order-item-fields { display: grid; grid-template-columns: 1.5fr 1fr; gap: 0 10px; }
@@ -832,7 +835,7 @@ em {
 .order-form-total strong:last-child { color: var(--ink); font-size: 16px; }
 .save-order-btn { width: 100%; justify-content: center; }
 .order-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.order-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 5px 0 20px; }
+.order-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 5px 0 20px; }
 .order-metrics div { border-left: 2px solid var(--terracotta); padding: 8px 10px; background: #f5f3ee; }
 .order-metrics small { display: block; color: var(--muted); font-size: 9px; margin-bottom: 5px; }
 .order-metrics strong { display: block; font-size: 13px; }
@@ -846,11 +849,32 @@ em {
 .order-history { margin-top: 8px; max-height: 180px; overflow: auto; }
 .order-history-row .edit-btn { padding: 6px; }
 .order-status { border: 1px solid var(--line); background: white; color: var(--ink); padding: 7px; font-size: 10px; }
+.order-payment-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.customer-results { position: relative; z-index: 4; background: white; border: 1px solid #d6d9d0; box-shadow: 0 12px 25px #17231a1c; max-height: 170px; overflow: auto; }
+.customer-results button { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; width: 100%; padding: 9px 10px; background: white; color: var(--ink); text-align: left; border-bottom: 1px solid var(--line); font-size: 11px; }
+.customer-results button:hover { background: #eef1e9; }
+.customer-results small, .customer-results p { color: var(--muted); font-size: 9px; }
+.customer-results p { padding: 9px 10px; margin: 0; }
+.new-customer-btn { display: flex; align-items: center; gap: 4px; background: transparent; color: var(--terracotta); padding: 5px 0; font-size: 10px; }
+.new-customer-form { border: 1px solid var(--line); padding: 12px; margin: -5px 0 12px; background: #f5f3ee; }
+.new-customer-form label { margin-bottom: 9px; }
+.new-customer-form textarea { min-height: 42px; }
+.best-sellers { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 4px; }
+.best-sellers-heading, .best-seller-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.best-sellers-heading { font-size: 11px; margin-bottom: 8px; }
+.best-sellers-heading select, .best-seller-dates input { border: 1px solid var(--line); background: white; color: var(--ink); padding: 6px; font: inherit; font-size: 10px; }
+.best-seller-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 5px; }
+.best-seller-row { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 10px; }
+.best-seller-row strong { color: var(--terracotta); }
+.payment-badge { display: inline-block; width: fit-content; padding: 3px 6px; font-size: 8px; background: #e7ece3; color: var(--ink); }
+.payment-piutang, .payment-belum_bayar { background: #f1dfd7; color: #9b442d; }
+.payment-dp { background: #f1ead3; color: #826b20; }
+.payment-method { color: var(--muted); font-size: 9px; white-space: nowrap; }
 .cancel-order-edit { width: 100%; justify-content: center; margin-top: 8px; }
 .order-pagination { display: flex; justify-content: center; align-items: center; gap: 15px; padding-top: 15px; color: var(--muted); font-size: 10px; }
 .order-pagination button { background: var(--sage); color: var(--ink); padding: 8px 10px; font-size: 10px; }
 .order-pagination button:disabled { opacity: .45; cursor: not-allowed; }
-.receipt-modal { width: min(520px, 100%); background: var(--cream); padding: 25px; box-shadow: 0 20px 80px #17231a40; }
+.receipt-modal { width: min(660px, 100%); background: var(--cream); padding: 25px; box-shadow: 0 20px 80px #17231a40; }
 .receipt-paper { background: white; padding: 28px; color: var(--ink); box-shadow: 0 3px 0 #d9ddd4; }
 .receipt-brand { font-size: 21px; font-weight: 700; letter-spacing: -.04em; }
 .receipt-label { color: var(--terracotta); font-size: 10px; letter-spacing: .12em; margin: 5px 0 18px; }
@@ -2337,301 +2361,6 @@ em {
         margin-top: 14px;
     }
 }
-
-    /* Final responsive safeguards: keep branding and dense controls readable on phones. */
-    .brand {
-        display: inline-flex;
-        align-items: center;
-        min-width: 0;
-        line-height: 1;
-        white-space: nowrap;
-    }
-
-    .brand .store-logo {
-        flex: 0 0 auto;
-        width: 180px;
-        height: 90px;
-        margin-right: 7px;
-        object-fit: contain;
-        object-position: center;
-    }
-
-    .brand small {
-        display: inline-block;
-        margin: 3px 0 0 3px;
-        font-family: 'DM Sans', sans-serif;
-        font-size: 12px;
-        font-weight: 600;
-        line-height: 1;
-        letter-spacing: 0.08em;
-    }
-
-    img {
-        max-width: 100%;
-    }
-
-    button,
-    input,
-    select,
-    textarea {
-        max-width: 100%;
-    }
-
-    @media (max-width: 800px) {
-        .announcement {
-            min-height: 32px;
-            height: auto;
-            padding: 7px 20px;
-            text-align: center;
-            line-height: 1.35;
-        }
-
-        .nav {
-            min-height: 75px;
-            height: auto;
-            gap: 8px;
-        }
-
-        .brand {
-            flex: 1 1 auto;
-            min-width: 0;
-            font-size: clamp(26px, 5vw, 35px);
-            letter-spacing: -0.05em;
-        }
-
-        .brand .store-logo {
-            width: clamp(72px, 15vw, 115px);
-            height: 58px;
-            margin-right: 4px;
-        }
-
-        .brand small {
-            font-size: 9px;
-            letter-spacing: 0.05em;
-        }
-
-        .nav-actions {
-            flex: 0 0 auto;
-            gap: 2px;
-        }
-
-        .order-btn {
-            max-width: 112px;
-            padding: 9px 7px;
-            justify-content: center;
-            gap: 4px;
-            font-size: 9px;
-            line-height: 1.25;
-            text-align: center;
-        }
-
-        .hero h1,
-        .section h2,
-        .benefit-copy h2,
-        .closing h2 {
-            overflow-wrap: anywhere;
-        }
-
-        .hero-text {
-            max-width: 100%;
-        }
-
-        .hero-cta,
-        .detail-actions {
-            flex-wrap: wrap;
-        }
-
-        .trust-items {
-            min-width: 0;
-        }
-
-        .trust-items > div {
-            min-width: 0;
-        }
-
-        .trust-items span {
-            overflow-wrap: anywhere;
-        }
-
-        .product-info h3,
-        .price-stack span {
-            overflow-wrap: anywhere;
-        }
-
-        .product-info {
-            min-width: 0;
-        }
-
-        .product-info > div {
-            min-width: 0;
-        }
-
-        .cart-bar > strong {
-            min-width: 0;
-            white-space: normal;
-            overflow-wrap: anywhere;
-        }
-
-        .dashboard-modal {
-            width: 100vw;
-            max-width: 100vw;
-        }
-
-        .dashboard-content,
-        .dashboard {
-            min-width: 0;
-        }
-
-        .dashboard-top h2 {
-            font-size: clamp(30px, 9vw, 40px);
-        }
-
-        .dashboard-actions,
-        .order-form-heading,
-        .summary-heading,
-        .order-history-head {
-            flex-wrap: wrap;
-            gap: 10px;
-        }
-
-        .dashboard-actions > button,
-        .dashboard-actions > label {
-            max-width: 100%;
-        }
-
-        .admin-product-row,
-        .order-draft-row,
-        .order-history-row {
-            min-width: 0;
-        }
-
-        .order-history-row {
-            grid-template-columns: minmax(0, 1fr) auto;
-        }
-
-        .order-history-row .order-status,
-        .order-history-row .edit-btn,
-        .order-history-row .delete-btn {
-            grid-column: auto;
-        }
-
-        .order-history-row .order-status {
-            grid-column: 1 / -1;
-            width: 100%;
-        }
-
-        .order-history-row .edit-btn,
-        .order-history-row .delete-btn {
-            justify-self: start;
-        }
-
-        .receipt-meta,
-        .receipt-lines > div {
-            flex-wrap: wrap;
-        }
-
-        .receipt-lines > div > strong {
-            margin-left: auto;
-        }
-    }
-
-    @media (max-width: 420px) {
-        .shell {
-            width: calc(100% - 28px);
-        }
-
-        .nav {
-            min-height: 68px;
-        }
-
-        .brand {
-            font-size: 20px;
-        }
-
-        .brand .store-logo {
-            width: 60px;
-            height: 36px;
-        }
-
-        .brand small {
-            font-size: 7px;
-        }
-
-        .order-btn {
-            max-width: 86px;
-            padding: 8px 5px;
-            font-size: 8px;
-        }
-
-        .menu-btn {
-            padding: 5px;
-        }
-
-        .hero-copy {
-            padding-top: 45px;
-        }
-
-        .hero h1 {
-            font-size: clamp(34px, 11vw, 47px);
-        }
-
-        .trust-items {
-            gap: 5px;
-        }
-
-        .trust-items strong {
-            font-size: 19px;
-        }
-
-        .trust-items span {
-            font-size: 8px;
-        }
-
-        .product-grid,
-        .category-grid {
-            gap: 8px;
-        }
-
-        .product-image {
-            height: 165px;
-        }
-
-        .product-info h3 {
-            font-size: 12px;
-        }
-
-        .price-stack {
-            font-size: 9px;
-        }
-
-        .dashboard-content {
-            padding: 20px 14px;
-        }
-
-        .dashboard-sidebar {
-            padding: 10px 14px;
-        }
-
-        .order-form,
-        .orders-summary,
-        .product-editor,
-        .login-panel {
-            padding: 15px;
-        }
-
-        .order-item-fields {
-            grid-template-columns: 1fr;
-        }
-
-        .order-item-fields label:nth-child(3),
-        .order-item-fields label:nth-child(4) {
-            grid-row: auto;
-        }
-
-        .category-editor-grid {
-            grid-template-columns: 1fr;
-        }
-    }
 /* Penyesuaian input kuantitas manual di card produk */
 .quantity-controls input[type="number"] {
   color: inherit;
@@ -2648,4 +2377,537 @@ em {
 
 .quantity-controls input[type="number"] {
   -moz-appearance: textfield;
+}
+/* =========================================================
+   PRODUCT DETAIL — MINIMALIS
+========================================================= */
+
+.product-detail-modal {
+  width: min(620px, calc(100vw - 32px));
+  max-width: 540px;
+  max-height: 56vh;
+
+  padding: 20px;
+  gap: 20px;
+
+  display: grid;
+  grid-template-columns: 220px 1fr;
+
+  box-sizing: border-box;
+}
+
+/* FOTO */
+.product-detail-modal > img {
+  width: 260px;
+  height: 260px;
+
+  object-fit: contain;
+  display: block;
+
+  border-radius: 6px;
+}
+
+/* INFORMASI */
+.product-detail-modal > div {
+  min-width: 0;
+  align-self: center;
+}
+
+/* KATEGORI */
+.product-detail-modal .product-category {
+  font-size: 10px;
+  margin-bottom: 5px;
+}
+
+/* NAMA */
+.product-detail-modal h2 {
+  font-size: 25px;
+  line-height: 1.15;
+  margin: 0 0 10px;
+}
+
+/* DESKRIPSI */
+.product-detail-modal .detail-description {
+  font-size: 12px;
+  line-height: 1.5;
+
+  margin: 0 0 14px;
+
+  max-width: 360px;
+  max-height: 70px;
+  overflow-y: auto;
+}
+
+/* HARGA */
+.product-detail-modal .detail-price {
+  padding: 10px 0;
+}
+
+.product-detail-modal .detail-price span {
+  font-size: 10px;
+}
+
+.product-detail-modal .detail-price strong {
+  font-size: 21px;
+}
+
+/* JUMLAH */
+.product-detail-modal .detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* =========================================================
+   TABLET
+========================================================= */
+
+@media (max-width: 650px) {
+
+  .product-detail-modal {
+    width: calc(100vw - 24px);
+    max-height: 85vh;
+
+    padding: 16px;
+    gap: 16px;
+
+    grid-template-columns: 180px 1fr;
+  }
+
+  .product-detail-modal > img {
+    width: 180px;
+    height: 180px;
+  }
+
+  .product-detail-modal h2 {
+    font-size: 21px;
+  }
+
+  .product-detail-modal .detail-description {
+    font-size: 11px;
+    max-height: 60px;
+  }
+
+  .product-detail-modal .detail-price strong {
+    font-size: 19px;
+  }
+}
+
+/* =========================================================
+   HP
+========================================================= */
+
+@media (max-width: 480px) {
+
+  .product-detail-modal {
+    width: calc(100vw - 20px);
+    max-height: 88vh;
+
+    padding: 14px;
+    gap: 12px;
+
+    grid-template-columns: 1fr;
+  } 
+
+  .product-detail-modal > img {
+    width: 100%;
+    height: 180px;
+  }
+
+  .product-detail-modal h2 {
+    font-size: 20px;
+  }
+
+  .product-detail-modal .detail-description {
+    max-height: 60px;
+  }
+}
+/* =========================================================
+   MOBILE FINAL — NAVBAR + FOOTER
+   Tujuan: stabil pada HP 320px sampai 430px+
+   DESKTOP TIDAK DIUBAH.
+   Diletakkan paling bawah agar menjadi override terakhir.
+   ========================================================= */
+
+@media (max-width: 800px) {
+
+  /* ---------- GLOBAL MOBILE SAFETY ---------- */
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* ---------- NAVBAR ---------- */
+  .nav.shell {
+    width: 100%;
+    max-width: none;
+    height: 64px;
+    min-height: 64px;
+    margin: 0;
+    padding: 0 14px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+  }
+
+  .nav > .brand {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+    height: 58px;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: clamp(16px, 5vw, 21px);
+    line-height: 1;
+    letter-spacing: -0.045em;
+  }
+
+  .nav > .brand .store-logo {
+    width: clamp(72px, 24vw, 100px);
+    max-width: 100px;
+    height: 48px;
+    flex: 0 1 auto;
+    flex-shrink: 1;
+    margin: 0 5px 0 0;
+    object-fit: contain;
+    object-position: left center;
+    display: block;
+  }
+
+  .nav > .brand small {
+    flex: 0 0 auto;
+    width: auto;
+    margin: 3px 0 0 4px;
+    font-size: clamp(7px, 2.2vw, 9px);
+    line-height: 1;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+
+  .nav-actions {
+    flex: 0 0 auto;
+    min-width: 0;
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .nav-actions .admin-link {
+    display: none;
+  }
+
+  .nav-actions .order-btn {
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: 8px 9px;
+    font-size: clamp(8px, 2.35vw, 10px);
+    line-height: 1;
+    gap: 4px;
+    white-space: nowrap;
+    box-sizing: border-box;
+  }
+
+  .nav-actions .order-btn svg {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+  }
+
+  .nav-actions .menu-btn {
+    flex: 0 0 34px;
+    width: 34px;
+    height: 34px;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+  }
+
+  .nav-actions .menu-btn svg {
+    width: 23px;
+    height: 23px;
+    flex-shrink: 0;
+  }
+
+  /* ---------- FOOTER ---------- */
+  .footer {
+    width: 100%;
+    max-width: 100%;
+    margin-top: 45px;
+    padding: 32px 0 18px;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  .footer-inner.shell {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0 20px;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 20px;
+    row-gap: 25px;
+    align-items: start;
+  }
+
+  /* Nama toko + deskripsi: satu baris penuh */
+  .footer-col-brand {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .footer-brand {
+    width: fit-content;
+    max-width: 100%;
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 3px;
+    margin: 0 0 7px;
+    font-size: 18px;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  .footer-brand small {
+    flex: 0 0 auto;
+    font-size: 8px;
+    padding: 3px 5px;
+    margin-left: 4px;
+    white-space: nowrap;
+  }
+
+  .footer-description {
+    width: 100%;
+    max-width: 290px;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  /* Semua kolom selain brand */
+  .footer-col {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  /* Alamat dibuat satu baris penuh agar tidak bertabrakan */
+  .footer-col:nth-of-type(2) {
+    grid-column: 1 / -1;
+  }
+
+  /* WhatsApp kiri, social kanan */
+  .footer-col:nth-of-type(3) {
+    grid-column: 1;
+  }
+
+  .footer-col:nth-of-type(4) {
+    grid-column: 2;
+  }
+
+  .footer-col .footer-label {
+    display: block;
+    margin: 0 0 7px;
+    font-size: 10px;
+    line-height: 1.2;
+    letter-spacing: 1px;
+  }
+
+  .footer-text,
+  .footer-whatsapp {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .footer-whatsapp {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .footer-social-links {
+    width: 100%;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 9px;
+  }
+
+  .social-link-item {
+    width: 100%;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    line-height: 1.35;
+    overflow: hidden;
+  }
+
+  .social-link-item svg {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+  }
+
+  .social-link-item span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .footer-copyright {
+    grid-column: 1 / -1;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    padding-top: 14px;
+    border-top: 1px solid #262626;
+    text-align: center;
+    font-size: 10px;
+    line-height: 1.4;
+  }
+}
+
+/* =========================================================
+   HP KECIL — 320px sampai 360px
+   Navbar tetap satu baris tanpa saling timpa.
+   ========================================================= */
+
+@media (max-width: 360px) {
+
+  .nav.shell {
+    height: 60px;
+    min-height: 60px;
+    padding: 0 10px;
+    gap: 5px;
+  }
+
+  .nav > .brand {
+    height: 54px;
+    font-size: 16px;
+  }
+
+  .nav > .brand .store-logo {
+    width: 72px;
+    max-width: 72px;
+    height: 42px;
+    margin-right: 3px;
+  }
+
+  .nav > .brand small {
+    font-size: 7px;
+    margin-left: 3px;
+  }
+
+  /* Pada layar sangat sempit, WA menjadi ikon saja */
+  .nav-actions .order-btn {
+    width: 32px;
+    height: 32px;
+    padding: 7px;
+    justify-content: center;
+    font-size: 0;
+    gap: 0;
+  }
+
+  .nav-actions .order-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .nav-actions .menu-btn {
+    flex-basis: 32px;
+    width: 32px;
+    height: 32px;
+  }
+
+  .nav-actions .menu-btn svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .footer-inner.shell {
+    padding-left: 16px;
+    padding-right: 16px;
+    column-gap: 14px;
+  }
+
+  .footer-brand {
+    font-size: 16px;
+  }
+
+  .footer-brand small {
+    font-size: 7px;
+    padding: 2px 4px;
+  }
+
+  .footer-description,
+  .footer-text,
+  .footer-whatsapp {
+    font-size: 11px;
+  }
+
+  .footer-col .footer-label {
+    font-size: 9px;
+  }
+
+  .social-link-item {
+    font-size: 10px;
+  }
+}
+
+/* =========================================================
+   HP LEBAR — 401px sampai 800px
+   Sedikit lebih lega tanpa mengubah desktop.
+   ========================================================= */
+
+@media (min-width: 401px) and (max-width: 800px) {
+
+  .nav.shell {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .nav > .brand .store-logo {
+    width: 100px;
+    max-width: 100px;
+    height: 50px;
+  }
+
+  .nav > .brand {
+    font-size: 20px;
+  }
+
+  .nav > .brand small {
+    font-size: 9px;
+  }
+
+  .footer-inner.shell {
+    padding-left: 24px;
+    padding-right: 24px;
+    column-gap: 26px;
+  }
 }
