@@ -1,8 +1,8 @@
 # SUPER MURAH KUPANG
 
-Perbaikan terbaru: harga manual Pesanan Toko tidak berubah saat QTY diganti; harga daftar, Supabase, dan nota konsisten. Perbaikan login, kategori dan artikel/promo sebelumnya tetap disertakan.
+Update terbaru: banner otomatis memenuhi kotak dengan latar putih, halaman dan filter Merk, serta Kelola merk di dashboard admin. Perbaikan harga manual pesanan, login, kategori, artikel, dan promo tetap disertakan.
 
-Baca **PANDUAN-PERBAIKAN.md**. Jika SQL konten sudah berhasil dijalankan, update ini cukup mengganti kode src: tidak perlu SQL baru, reset database, atau impor ulang konten. SQL-ARTIKEL-PROMO.sql tetap disertakan hanya untuk instalasi yang belum mempunyai tabel konten.
+Baca **PANDUAN-PERBAIKAN.md**. Jalankan **SQL-MERK.sql** satu kali pada Supabase yang sama sebelum memakai fitur merk. Tambahkan merk dari admin, lalu pilih merk saat mengedit produk. Data lama tidak dihapus. SQL-ARTIKEL-PROMO.sql hanya untuk instalasi yang belum memiliki tabel konten.
 
 ```bash
 npm ci

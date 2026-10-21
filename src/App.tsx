@@ -1,3 +1,5 @@
+import { useBrands } from "./lib/brands";
+import { AdminBrandsTab } from "./components/AdminBrandsTab";
 import { AdminLoginPanel } from "./components/AdminLoginPanel";
 import { AdminCategoriesTab } from "./components/AdminCategoriesTab";
 import { useStorefrontContent, uploadContentImage } from "./lib/storefrontContent";
@@ -139,6 +141,7 @@ const defaultCategories: { label: string; image: string }[] = [
 
 const emptyProduct: Omit<Product, "id"> = {
   product_code: "",
+  brand_id: null,
   name: "",
   category: "Dapur",
   retail: "",
@@ -174,6 +177,7 @@ const localDateString = (date = new Date()) => {
  *   superWholesale
  */
 const normalizeProduct = (product: any): Product => ({
+  brand_id: product?.brand_id == null ? null : Number(product.brand_id),
   id: Number.isFinite(Number(product?.id))
     ? Number(product.id)
     : 0,
@@ -332,12 +336,12 @@ const removeStorageFileByUrl = async (
    APP
 ========================================================= */
 
-type PublicView = "home" | "catalog" | "categories" | "about" | "articles" | "promos";
-const publicRoutes: Record<PublicView, string> = { home: "home", catalog: "katalog", categories: "kategori", about: "about", articles: "artikel", promos: "promo" };
+type PublicView = "home" | "catalog" | "categories" | "about" | "articles" | "promos" | "brands";
+const publicRoutes: Record<PublicView, string> = { home: "home", catalog: "katalog", categories: "kategori", about: "about", articles: "artikel", promos: "promo", brands: "merk" };
 const readPublicRoute = () => {
   const [path, query = ""] = window.location.hash.replace(/^#\/?/, "").split("?");
   const page = (Object.keys(publicRoutes) as PublicView[]).find((key) => publicRoutes[key] === path) || "home";
-  return { page, category: new URLSearchParams(query).get("category") || "Semua", search: new URLSearchParams(query).get("q") || "" };
+  return { page, category: new URLSearchParams(query).get("category") || "Semua", search: new URLSearchParams(query).get("q") || "", brand: new URLSearchParams(query).get("brand") || "Semua" };
 };
 
 function App() {
@@ -346,20 +350,23 @@ function App() {
   ======================================================= */
 
   const [publicView, setPublicView] = useState<PublicView>(() => readPublicRoute().page);
-  const navigatePublic = (page: PublicView, category = "Semua", search = "") => {
+  const navigatePublic = (page: PublicView, category = "Semua", search = "", brand = "Semua") => {
     const params = new URLSearchParams();
     if (page === "catalog" && category !== "Semua") params.set("category", category);
+    if (page === "catalog" && brand !== "Semua") params.set("brand", brand);
     if (page === "catalog" && search.trim()) params.set("q", search.trim());
     const hash = `#/${publicRoutes[page]}${params.size ? "?" + params.toString() : ""}`;
     setMenuOpen(false);
     setPublicView(page);
     setActiveCategory(category);
+    setActiveBrand(brand);
     setPublicSearch(search);
     setPublicPage(1);
     if (window.location.hash !== hash) window.location.hash = hash;
     window.scrollTo({ top: 0, behavior: "instant" });
   };
 
+  const [activeBrand, setActiveBrand] = useState(() => readPublicRoute().brand);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
@@ -388,10 +395,12 @@ function App() {
   const [isAdmin, setIsAdmin] =
     useState(false);
 
+  const brandData = useBrands(isAdmin);
   const content = useStorefrontContent(isAdmin);
   useEffect(() => {
     if (!adminOpen) void content.reload();
   }, [adminOpen, publicView, content.reload]);
+  useEffect(() => { if (!adminOpen) void brandData.reload(); }, [adminOpen, publicView, brandData.reload]);
   const [headerSearch, setHeaderSearch] = useState("");
   const [catalogSort, setCatalogSort] = useState("default");
   const [minPrice, setMinPrice] = useState("");
@@ -416,6 +425,9 @@ function App() {
 
   const [editorOpen, setEditorOpen] =
     useState(false);
+
+  const [brandSaving, setBrandSaving] = useState<Record<number, boolean>>({});
+  const [brandSaveMessage, setBrandSaveMessage] = useState<Record<number, string>>({});
 
   const [categoryName, setCategoryName] =
     useState("");
@@ -558,6 +570,7 @@ function App() {
       const route = readPublicRoute();
       setPublicView(route.page);
       setActiveCategory(route.category);
+      setActiveBrand(route.brand);
       setPublicSearch(route.search);
       setPublicPage(1);
       setMenuOpen(false);
@@ -1128,27 +1141,11 @@ function App() {
     return result;
   }, [categories, products]);
 
-  const filteredProducts = useMemo(() => {
-    if (activeCategory === "Semua") {
-      return products;
-    }
-
-    const selectedCategory =
-      activeCategory
-        .trim()
-        .toLowerCase();
-
-    return products.filter(
-      (product) =>
-        product.category
-          .trim()
-          .toLowerCase() ===
-        selectedCategory,
-    );
-  }, [
-    products,
-    activeCategory,
-  ]);
+  const filteredProducts = useMemo(() => products.filter(product =>
+    (activeCategory === "Semua" || product.category.trim().toLowerCase() === activeCategory.trim().toLowerCase()) &&
+    (activeBrand === "Semua" || String(product.brand_id) === activeBrand)
+  ), [products, activeCategory, activeBrand]);
+  const brandName = (product: Product) => brandData.brands.find(brand => brand.id === product.brand_id)?.name || "";
 
   /*
    * PENCARIAN PRODUK PUBLIK
@@ -1170,6 +1167,7 @@ function App() {
             [
               product.name,
               product.product_code ?? "",
+              brandName(product),
               product.category,
               product.description ?? "",
               product.badge ?? "",
@@ -1185,6 +1183,7 @@ function App() {
     }, [
       filteredProducts,
       publicSearch,
+      brandData.brands,
     ]);
 
   /* =======================================================
@@ -2127,6 +2126,7 @@ function App() {
     if (product) {
       setForm({
         product_code: product.product_code || "",
+        brand_id: product.brand_id ?? null,
         name: product.name,
         category:
           product.category,
@@ -2270,6 +2270,7 @@ function App() {
         product_code: form.product_code?.trim() || null,
         name,
         category,
+        ...(brandData.error || brandData.loading ? {} : { brand_id: form.brand_id ?? null }),
         retail:
           form.retail.trim(),
         wholesale:
@@ -3355,12 +3356,12 @@ function App() {
             <button type="button" className="admin-link" aria-label="Admin" onClick={() => { setAdminOpen(true); setLoginError(""); }}><LogIn size={18} /><span>Admin</span></button>
           </div>
         </nav>
-        <div className="shop-category-rail"><div className="shell"><button onClick={() => navigatePublic("catalog")}>Semua Produk</button>{publicCategories.slice(0, 7).map(category => <button key={category.id} onClick={() => navigatePublic("catalog", category.name)}>{category.name}</button>)}<button onClick={() => navigatePublic("articles")}>Artikel</button><button onClick={() => navigatePublic("promos")}>Promo</button></div></div>
+        <div className="shop-category-rail"><div className="shell"><button onClick={() => navigatePublic("catalog")}>Semua Produk</button>{publicCategories.slice(0, 7).map(category => <button key={category.id} onClick={() => navigatePublic("catalog", category.name)}>{category.name}</button>)}<button onClick={() => navigatePublic("brands")}>Merk</button><button onClick={() => navigatePublic("articles")}>Artikel</button><button onClick={() => navigatePublic("promos")}>Promo</button></div></div>
         {menuOpen && <>
           <button className="store-menu-scrim" aria-label="Tutup menu navigasi" onClick={() => setMenuOpen(false)} />
           <nav id="store-menu" className="store-menu" aria-label="Halaman toko">
             <p>Jelajahi toko</p>
-            {([["home", "Home", "Tampilan depan"], ["catalog", "Katalog", "Semua produk"], ["categories", "Kategori", "Produk sesuai kebutuhan"], ["about", "About", "Tentang toko"], ["articles", "Artikel", "Inspirasi & tips"], ["promos", "Promo", "Penawaran toko"]] as const).map(([page, label, description]) => <a key={page} href={`#/${publicRoutes[page]}`} aria-current={publicView === page ? "page" : undefined} onClick={(event) => { event.preventDefault(); navigatePublic(page); }}><span><strong>{label}</strong><small>{description}</small></span><ArrowRight size={18} /></a>)}
+            {([["home", "Home", "Tampilan depan"], ["catalog", "Katalog", "Semua produk"], ["categories", "Kategori", "Produk sesuai kebutuhan"], ["brands", "Merk", "Produk berdasarkan merk"], ["about", "About", "Tentang toko"], ["articles", "Artikel", "Inspirasi & tips"], ["promos", "Promo", "Penawaran toko"]] as const).map(([page, label, description]) => <a key={page} href={`#/${publicRoutes[page]}`} aria-current={publicView === page ? "page" : undefined} onClick={(event) => { event.preventDefault(); navigatePublic(page); }}><span><strong>{label}</strong><small>{description}</small></span><ArrowRight size={18} /></a>)}
           </nav>
         </>}
       </header>
@@ -3371,7 +3372,7 @@ function App() {
         <section className="home-selection shell" aria-label="Produk pilihan">
           <div className="shop-section-heading"><h2>Produk Pilihan</h2><div className="shop-product-tabs">{[["selected", "Produk Pilihan"], ["best", "Penjualan Terbaik"], ["new", "Produk Terbaru"]].map(([value, label]) => <button className={homeSelection === value ? "active" : ""} onClick={() => setHomeSelection(value)} key={value}>{label}</button>)}</div></div>
 
-          {productsLoading ? <p className="empty-catalog">Memuat produk...</p> : productsError ? <div className="empty-catalog"><p>Produk belum berhasil dimuat.</p><button className="secondary-btn" onClick={loadProducts}>Coba lagi</button></div> : <div className="product-grid home-product-grid">{(homeSelection === "new" ? [...products].sort((a,b) => b.id-a.id) : homeSelection === "best" ? bestSellerProducts : featuredProducts.length ? featuredProducts : products).slice(0, 12).map((product) => <article className="product-card" key={product.id}><button className="home-product-photo" onClick={() => setSelectedProduct(product)} aria-label={`Lihat detail ${product.name}`}><img src={product.image || getDefaultCategoryImage(product.category)} alt={product.name} loading="lazy" /></button><div className="product-info"><p className="product-category">{product.category}</p><h3>{product.name}</h3><p className="product-description">{product.description || "Lihat detail untuk informasi produk."}</p><strong>{formatRupiah(getPrice(product, 1))}</strong><button className="secondary-btn" onClick={() => setSelectedProduct(product)}>Lihat detail <ArrowRight size={15} /></button></div></article>)}</div>}
+          {productsLoading ? <p className="empty-catalog">Memuat produk...</p> : productsError ? <div className="empty-catalog"><p>Produk belum berhasil dimuat.</p><button className="secondary-btn" onClick={loadProducts}>Coba lagi</button></div> : <div className="product-grid home-product-grid">{(homeSelection === "new" ? [...products].sort((a,b) => b.id-a.id) : homeSelection === "best" ? bestSellerProducts : featuredProducts.length ? featuredProducts : products).slice(0, 12).map((product) => <article className="product-card" key={product.id}><button className="home-product-photo" onClick={() => setSelectedProduct(product)} aria-label={`Lihat detail ${product.name}`}><img src={product.image || getDefaultCategoryImage(product.category)} alt={product.name} loading="lazy" /></button><div className="product-info"><p className="product-category">{brandName(product) || product.category}</p><h3>{product.name}</h3><p className="product-description">{product.description || "Lihat detail untuk informasi produk."}</p><strong>{formatRupiah(getPrice(product, 1))}</strong><button className="secondary-btn" onClick={() => setSelectedProduct(product)}>Lihat detail <ArrowRight size={15} /></button></div></article>)}</div>}
           {!productsLoading && !productsError && !products.length && <p className="empty-catalog">Belum ada produk untuk ditampilkan.</p>}
           <button className="article-read all-products-link" onClick={() => navigatePublic("catalog")}>Lihat semua produk <ArrowRight size={16} /></button>
         </section>
@@ -3379,6 +3380,8 @@ function App() {
       </>}
       {publicView === "articles" && <><div className="content-page-heading shell"><p className="eyebrow">Inspirasi & tips</p><h1>Artikel Super Murah Kupang</h1><p>Temukan inspirasi untuk rumah dan kebutuhan usaha Anda.</p></div><StorefrontContentSections items={content.items} loading={content.loading} error={content.error} onReload={content.reload} articlesOnly /></>}
       {publicView === "promos" && <><div className="content-page-heading shell"><p className="eyebrow">Penawaran toko</p><h1>Promo Super Murah Kupang</h1><p>Lihat penawaran yang sedang berlaku beserta rincian dan syaratnya.</p></div><StorefrontContentSections items={content.items} loading={content.loading} error={content.error} onReload={content.reload} promosOnly /></>}
+
+      {publicView === "brands" && <section className="section shell public-brands"><div className="page-heading"><div><p className="eyebrow">Jelajahi pilihan</p><h1>Merk produk</h1><p>Pilih merk untuk melihat katalog yang sesuai.</p></div></div>{brandData.loading ? <p>Memuat merk...</p> : brandData.error ? <div className="empty-catalog"><p>Daftar merk belum dapat dimuat.</p><button className="secondary-btn" onClick={brandData.reload}>Coba lagi</button></div> : <div className="brand-card-grid">{brandData.brands.map(brand => <button className="public-brand-card" key={brand.id} onClick={() => navigatePublic("catalog", "Semua", "", String(brand.id))}><div className="brand-logo">{brand.image ? <img src={brand.image} alt={brand.name} loading="lazy" /> : <Tags size={38} />}</div><strong>{brand.name}</strong><span>{products.filter(product => product.brand_id === brand.id).length} produk <ArrowRight size={15} /></span></button>)}</div>}{!brandData.loading && !brandData.error && !brandData.brands.length && <p className="empty-catalog">Merk produk belum ditambahkan.</p>}</section>}
 
       {publicView === "categories" && <>
       {/* ===================================================
@@ -3437,9 +3440,9 @@ function App() {
         id="unggulan"
       >
         <div className="shell shop-catalog-layout">
-          <aside className="shop-catalog-sidebar" aria-label="Filter produk"><h2>Filter Produk</h2><h3>Kategori</h3><button className={activeCategory === "Semua" ? "active" : ""} onClick={() => navigatePublic("catalog")}>Semua kategori</button>{publicCategories.map(category => <button className={activeCategory === category.name ? "active" : ""} key={category.id} onClick={() => navigatePublic("catalog", category.name)}>{category.name}<span>{products.filter(product => product.category.toLowerCase() === category.name.toLowerCase()).length}</span></button>)}<h3>Harga ecer</h3><label>Minimum<input aria-label="Harga minimum" type="number" min="0" value={minPrice} onChange={e => setMinPrice(e.target.value)} placeholder="Rp min" /></label><label>Maksimum<input aria-label="Harga maksimum" type="number" min="0" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} placeholder="Rp max" /></label><button className="reset-filter" onClick={() => { setMinPrice(""); setMaxPrice(""); setCatalogSort("default"); navigatePublic("catalog"); }}>Hapus filter</button></aside>
+          <aside className="shop-catalog-sidebar" aria-label="Filter produk"><h2>Filter Produk</h2><h3>Kategori</h3><button className={activeCategory === "Semua" ? "active" : ""} onClick={() => navigatePublic("catalog", "Semua", publicSearch, activeBrand)}>Semua kategori</button>{publicCategories.map(category => <button className={activeCategory === category.name ? "active" : ""} key={category.id} onClick={() => navigatePublic("catalog", category.name, publicSearch, activeBrand)}>{category.name}<span>{products.filter(product => product.category.toLowerCase() === category.name.toLowerCase()).length}</span></button>)}<h3>Merk</h3><label className="brand-filter-label">Filter merk<select aria-label="Filter merk" value={activeBrand} onChange={event => navigatePublic("catalog", activeCategory, publicSearch, event.target.value)} disabled={brandData.loading || Boolean(brandData.error)}><option value="Semua">Semua merk</option>{brandData.brands.map(brand => <option key={brand.id} value={String(brand.id)}>{brand.name}</option>)}</select></label><h3>Harga ecer</h3><label>Minimum<input aria-label="Harga minimum" type="number" min="0" value={minPrice} onChange={e => setMinPrice(e.target.value)} placeholder="Rp min" /></label><label>Maksimum<input aria-label="Harga maksimum" type="number" min="0" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} placeholder="Rp max" /></label><button className="reset-filter" onClick={() => { setMinPrice(""); setMaxPrice(""); setCatalogSort("default"); navigatePublic("catalog"); }}>Hapus filter</button></aside>
           <div className="shop-catalog-main">
-          <div className="catalog-titlebar"><div><h1>{activeCategory === "Semua" ? "Semua katalog" : `Katalog ${activeCategory}`}</h1><p>Ditemukan {displayedCatalogProducts.length} produk untuk Anda</p></div><label>Urutkan<select aria-label="Urutan produk" value={catalogSort} onChange={e => setCatalogSort(e.target.value)}><option value="default">Rekomendasi</option><option value="newest">Terbaru</option><option value="price-asc">Harga terendah</option><option value="price-desc">Harga tertinggi</option><option value="name">Nama A–Z</option></select></label></div>
+          <div className="catalog-titlebar"><div><h1>{activeCategory === "Semua" ? "Semua katalog" : `Katalog ${activeCategory}`}</h1><p>Ditemukan {displayedCatalogProducts.length} produk{activeBrand !== "Semua" ? ` • Merk: ${brandData.brands.find(brand => String(brand.id) === activeBrand)?.name || "Pilihan merk"}` : " untuk Anda"}</p></div><label>Urutkan<select aria-label="Urutan produk" value={catalogSort} onChange={e => setCatalogSort(e.target.value)}><option value="default">Rekomendasi</option><option value="newest">Terbaru</option><option value="price-asc">Harga terendah</option><option value="price-desc">Harga tertinggi</option><option value="name">Nama A–Z</option></select></label></div>
           <label className="public-search catalog-search"><Search size={18} /><input aria-label="Cari di katalog" value={publicSearch} onChange={e => setPublicSearch(e.target.value)} placeholder="Cari nama barang..." /></label>
           {/* =================================================
               ERROR LOAD PRODUCTS
@@ -3604,6 +3607,7 @@ function App() {
                             }
                           </p>
 
+                          {brandName(product) && <p className="product-brand">{brandName(product)}</p>}
                           <h3>
                             {
                               product.name
@@ -4175,6 +4179,7 @@ function App() {
                     Banner promosi
                   </button>
 
+                  <button className={adminSection === "brands" ? "active" : ""} onClick={() => setAdminSection("brands")}><Tags size={17} />Kelola merk</button>
                 </aside>
 
                 <div className="dashboard-content">
@@ -4185,6 +4190,7 @@ function App() {
                       </p>
 
                       <h2>
+                        {adminSection === "brands" && <>Kelola merk.</>}
                         {adminSection === "overview" && (
                           <>Ringkasan <em>eksekutif.</em></>
                         )}
@@ -4406,6 +4412,39 @@ function App() {
                                   }
                                 </small>
                               </div>
+
+                              <label className="quick-brand-field">
+                                <span>Merk</span>
+                                <select
+                                  aria-label={`Merk untuk ${product.name}`}
+                                  value={product.brand_id == null ? "" : String(product.brand_id)}
+                                  disabled={brandData.loading || Boolean(brandData.error) || brandSaving[product.id]}
+                                  onChange={async event => {
+                                    const brandId = event.target.value ? Number(event.target.value) : null;
+                                    if (!isAdmin || brandSaving[product.id]) return;
+                                    setBrandSaving(current => ({ ...current, [product.id]: true }));
+                                    setBrandSaveMessage(current => ({ ...current, [product.id]: "Menyimpan..." }));
+                                    try {
+                                      const { data, error } = await supabase.from("products")
+                                        .update({ brand_id: brandId }).eq("id", product.id)
+                                        .select("id, brand_id").single();
+                                      if (error) throw error;
+                                      setProducts(current => current.map(item => item.id === product.id ? { ...item, brand_id: data.brand_id } : item));
+                                      setBrandSaveMessage(current => ({ ...current, [product.id]: "Tersimpan" }));
+                                    } catch (error) {
+                                      setBrandSaveMessage(current => ({ ...current, [product.id]: "Gagal menyimpan. Coba lagi." }));
+                                      console.error("Update merk produk gagal:", error);
+                                    } finally {
+                                      setBrandSaving(current => ({ ...current, [product.id]: false }));
+                                    }
+                                  }}
+                                >
+                                  <option value="">Tanpa merk</option>
+                                  {product.brand_id != null && !brandData.brands.some(brand => brand.id === product.brand_id) && <option value={String(product.brand_id)}>Merk tersimpan</option>}
+                                  {brandData.brands.map(brand => <option key={brand.id} value={String(brand.id)}>{brand.name}</option>)}
+                                </select>
+                                <small role="status">{brandData.error ? "Daftar merk belum tersedia" : brandSaveMessage[product.id]}</small>
+                              </label>
 
                               <select
                                 value={
@@ -4700,6 +4739,7 @@ function App() {
                       CATEGORIES
                   ===================================== */}
 
+                  {adminSection === "brands" && <AdminBrandsTab brands={brandData.brands} products={products} loading={brandData.loading} error={brandData.error} onReload={brandData.reload} onSave={brandData.save} onRemove={brandData.remove} />}
                   {adminSection === "categories" && <AdminCategoriesTab categories={categories} products={products} name={categoryName} saving={savingCategory} uploadingId={uploadingCategoryImage} onNameChange={setCategoryName} onAdd={addCategory} onUpload={uploadCategoryImage} onRemoveImage={removeCategoryImage} onRemove={removeCategory} fallbackImage={getDefaultCategoryImage} />}
                 </div>
               </div>
@@ -5145,6 +5185,8 @@ function App() {
                     )}
                   </select>
                 </label>
+
+                <label>Merk produk<select aria-label="Merk produk" value={form.brand_id == null ? "" : String(form.brand_id)} disabled={brandData.loading || Boolean(brandData.error)} onChange={event => setForm(current => ({ ...current, brand_id: event.target.value ? Number(event.target.value) : null }))}><option value="">Tanpa merk</option>{form.brand_id != null && !brandData.brands.some(brand => brand.id === form.brand_id) && <option value={String(form.brand_id)}>Merk tersimpan</option>}{brandData.brands.map(brand => <option key={brand.id} value={String(brand.id)}>{brand.name}</option>)}</select>{brandData.error && <small>Jalankan SQL-MERK.sql untuk mengaktifkan pilihan merk.</small>}</label>
 
                 <label>
                   Harga ecer

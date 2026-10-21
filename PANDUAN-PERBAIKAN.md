@@ -1,3 +1,40 @@
+# Pilihan merk langsung pada daftar katalog admin
+
+Update terbaru cukup mengganti `src/App.tsx` dan `src/styles.css` dari ZIP ini. Pertahankan `.env` milikmu.
+
+Pada Admin → Katalog produk, setiap baris sekarang mempunyai pilihan Merk di sebelah kiri pilihan kategori. Pilih merk dan tunggu status Tersimpan; tidak perlu membuka Edit atau menekan tombol simpan. Pilih Tanpa merk untuk melepas hubungan merk tanpa menghapus produk atau merk. Jika penyimpanan gagal, pilihan lama tetap tampil dan ada pesan untuk mencoba lagi.
+
+Pada layar kecil pilihan merk dan kategori disusun ke bawah agar tidak bertumpuk. Tambah/edit/hapus daftar merk tetap melalui Kelola merk.
+
+Tidak perlu SQL baru jika SQL-MERK.sql dari versi sebelumnya sudah berhasil dijalankan. SQL tersebut tetap disertakan bagi yang belum memasangnya. Tidak ada SQL yang dijalankan pada database asli selama pengerjaan ini.
+
+---
+
+# Update Merk dan banner depan
+
+## Pemasangan update terbaru
+
+1. Salin kode dari ZIP terbaru ke proyekmu. Pertahankan konfigurasi `.env` milikmu.
+2. Jalankan isi `SQL-MERK.sql` di SQL Editor pada proyek Supabase yang sama. Tidak perlu menjalankan ulang SQL artikel/promo.
+3. Buka dashboard admin → Kelola merk, lalu tambahkan merk.
+4. Edit produk, pilih merk, lalu simpan. Produk lama tetap ada dan belum memiliki merk sampai kamu memilihnya.
+5. Build dan deploy ulang jika website sudah online.
+
+Perubahan sumber terbaru: `src/App.tsx`, `src/types.ts`, `src/styles.css`, serta file baru `src/lib/brands.ts` dan `src/components/AdminBrandsTab.tsx`.
+
+## Perilaku baru
+
+- Banner depan memakai `object-fit: cover`, sehingga gambar memenuhi kotak. Bagian tepi gambar dapat terpotong sesuai rasio layar. Latar kotaknya putih.
+- Menu garis tiga mempunyai halaman Merk. Pengunjung bisa memilih merk dan menggabungkannya dengan filter kategori di katalog. Filter merk tetap aktif saat halaman dimuat ulang.
+- Admin dapat menambah, mengedit, dan menghapus merk. Mengganti nama merk tetap mempertahankan hubungan produk karena relasi memakai ID.
+- Merk yang masih digunakan produk tidak dapat dihapus. Pindahkan atau kosongkan merk pada produk terlebih dahulu.
+- Logo merk opsional dan tetap ditampilkan utuh. Upload menggunakan bucket `promotion-images` yang sudah ada; update ini tidak mengubah kebijakan bucket.
+- SQL membuat tabel `brands` dan kolom nullable `products.brand_id`, dengan akses baca publik serta pengelolaan oleh akun admin yang terdaftar pada `admin_users`. Tidak menghapus atau mereset data lama.
+
+Build berhasil. Pengujian browser dengan API simulasi lolos pada lebar 1440, 768, 390, dan 320 px, mencakup CRUD merk, penetapan merk produk, kombinasi filter, muat ulang, serta banner. Pengujian harga manual pesanan dan nota juga tetap lolos pada desktop dan ponsel. SQL dan kebijakan akses belum dijalankan pada Supabase asli selama pengerjaan.
+
+Perbaikan sebelumnya tetap disertakan di bawah ini.
+
 # Update Kelola Kategori + penyimpanan Supabase
 
 Versi ini dibuat dari ZIP terbaru yang kamu unggah. Perubahan kode sudah selesai; SQL disertakan untuk dijalankan sendiri setelah memasang kode. Tidak ada perubahan yang dijalankan pada Supabase asli selama pengerjaan.

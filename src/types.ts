@@ -7,6 +7,7 @@ export type Category = {
 export type Product = {
   id: number;
   product_code?: string | null;
+  brand_id?: number | null;
   name: string;
   category: string;
   image: string;
@@ -30,7 +31,8 @@ export type AdminSection =
   | "customers"
   | "marketing"
   | "promotion"
-  | "categories";
+  | "categories"
+  | "brands";
 
 export type OrderItem = {
   id?: string;

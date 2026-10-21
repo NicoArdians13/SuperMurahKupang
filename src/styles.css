@@ -1835,3 +1835,39 @@ svg { flex-shrink: 0; }
 @media (prefers-reduced-motion: reduce) { .signin-spinner { animation: none; } }
 .order-price-mode { display: block; font-size: 11px; line-height: 1.6; color: #768398; }
 .order-system-price { width: fit-content; background: #edf2f8; color: #334b68; font-size: 11px; padding: 7px 10px; border-radius: 6px; text-align: left; }
+/* Banner fills its frame; remaining canvas uses white. */
+.shop-banner > img { width: 100%; height: clamp(220px, 32vw, 430px); max-height: none; object-fit: cover; object-position: center; background: #fff; }
+.shop-banner-fallback { background: #fff; border: 1px solid #e6e9ee; }
+.brand-workspace { display: grid; gap: 24px; }
+.brand-editor { padding: 24px; background: white; border: 1px solid #e1e6ee; border-radius: 12px; scroll-margin-top: 20px; }
+.brand-editor p { font-size: 13px; color: #778190; margin-top: 7px; }
+.brand-editor form { margin-top: 20px; }
+.brand-editor fieldset { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; border: 0; min-width: 0; }
+.brand-editor-image { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 16px; background: #f8fafc; border: 1px dashed #dce3ec; border-radius: 9px; }
+.brand-editor-image > img { width: 120px; height: 80px; object-fit: contain; }
+.brand-card-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(min(100%,230px),1fr)); gap: 20px; }
+.brand-manage-card, .public-brand-card { display: grid; align-content: start; gap: 12px; background: white; border: 1px solid #e1e6ee; border-radius: 12px; padding: 20px; text-align: left; min-width: 0; }
+.brand-logo { display: grid; place-items: center; width: 100%; height: 120px; padding: 12px; color: #99a5b5; background: white; }
+.brand-logo img { width: 100%; height: 100%; object-fit: contain; }
+.brand-manage-card h3, .public-brand-card strong { font-size: 17px; overflow-wrap: anywhere; }
+.brand-manage-card > p, .brand-manage-card small { font-size: 12px; line-height: 1.7; color: #778190; }
+.public-brands { padding-top: 40px; padding-bottom: 64px; }
+.public-brand-card { transition: border-color .2s, box-shadow .2s; }
+.public-brand-card:hover { border-color: #dc2532; box-shadow: 0 6px 18px #1722340a; }
+.public-brand-card > span { display: flex; justify-content: space-between; font-size: 12px; color: #778190; }
+.product-brand { font-size: 11px; color: #778190; margin-bottom: 4px; }
+@media (max-width: 600px) { .brand-editor { padding: 18px; } .brand-editor fieldset { grid-template-columns: minmax(0,1fr); } .brand-card-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; } .brand-manage-card, .public-brand-card { padding: 14px; } .brand-logo { height: 100px; } .brand-manage-card .content-row-actions > button { padding: 8px; font-size: 12px; } }
+
+/* Pilihan merk langsung di sebelah kiri kategori pada daftar admin. */
+.admin-product-row { grid-template-columns: 64px minmax(0, 1fr) minmax(120px, 170px) minmax(120px, 180px) auto auto; }
+.quick-brand-field { display: grid; gap: 4px; min-width: 0; font-size: 12px; }
+.quick-brand-field select { width: 100%; min-width: 0; }
+.quick-brand-field small { font-size: 11px; }
+@media (max-width: 1100px) {
+ .admin-product-row { grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; }
+ .admin-product-row .quick-brand-field { grid-column: 2; grid-row: 2; }
+ .admin-product-row .quick-brand-field select { grid-column: auto; grid-row: auto; }
+ .admin-product-row > select { grid-column: 2; grid-row: 3; width: 100%; min-width: 0; }
+ .admin-product-row .edit-btn { grid-column: 3; grid-row: 1; }
+ .admin-product-row .delete-btn { grid-column: 3; grid-row: 2; }
+}
