@@ -1,3 +1,18 @@
+# Import Excel: harga diperbarui, kategori dan merk tetap
+
+Untuk update ini ganti `src/components/ExcelImportModal.tsx` dan `src/App.tsx` dari ZIP. Tidak perlu SQL baru. Pertahankan `.env` dan konfigurasi Supabase milikmu.
+
+- Barang lama dicocokkan berdasarkan kode terlebih dahulu, lalu nama. Nama diabaikan perbedaan huruf besar/kecil dan spasi berlebih.
+- Barang lama hanya diperbarui kolom harga yang terisi pada Excel serta waktu pembaruan. Kategori, merk, nama, kode, gambar, badge dan deskripsi tidak dikirim pada PATCH, sehingga tetap mengikuti database.
+- Harga kosong pada Excel mempertahankan harga lama; angka 0 tetap dianggap nilai harga.
+- Barang baru ditambahkan mengikuti Excel dan belum memiliki merk. Tentukan merknya lewat pilihan langsung di daftar katalog atau Edit produk.
+- Membaca ulang seluruh katalog Supabase sebelum menulis agar pencocokan tidak memakai daftar lama pada browser. Jika pembacaan gagal, impor dibatalkan tanpa menulis barang.
+- Tidak ada penghapusan produk atau reset database. Tidak ada SQL yang dijalankan pada Supabase asli.
+
+Build berhasil. Pengujian browser dengan API simulasi pada desktop dan ponsel mencakup kode sama dengan nama berbeda, nama sama dengan kode kosong, kategori/merk tetap, harga kosong tetap, barang baru, impor file yang sama dua kali tanpa duplikasi, serta hasil setelah muat ulang.
+
+---
+
 # Pilihan merk langsung pada daftar katalog admin
 
 Update terbaru cukup mengganti `src/App.tsx` dan `src/styles.css` dari ZIP ini. Pertahankan `.env` milikmu.

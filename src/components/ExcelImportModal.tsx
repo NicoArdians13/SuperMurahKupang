@@ -38,7 +38,6 @@ export function ExcelImportModal({
 }: ExcelImportModalProps) {
   const [step, setStep] = useState<"upload" | "preview" | "importing" | "complete">("upload");
   const [parsedRows, setParsedRows] = useState<ExcelRow[]>([]);
-  const [preserveExistingImages, setPreserveExistingImages] = useState(true);
   const [updateExisting, setUpdateExisting] = useState(true);
   const [autoAddCategories, setAutoAddCategories] = useState(true);
 
@@ -194,7 +193,7 @@ export function ExcelImportModal({
             const existingMatch = (normCode && existingByCode.get(normCode)) || existingByName.get(normName);
             if (existingMatch) {
               status = status === "warning" ? "warning" : "valid_update";
-              messages.push(`Update produk existing (ID #${existingMatch.id}: ${existingMatch.name}).`);
+              messages.push(`Update harga saja (ID #${existingMatch.id}: ${existingMatch.name}). Kategori dan merk tetap.`);
             }
 
             // Check prices
@@ -204,7 +203,7 @@ export function ExcelImportModal({
             }
 
             // Check category
-            if (!knownCategories.has(category.toLowerCase())) {
+            if (!existingMatch && !knownCategories.has(category.toLowerCase())) {
               messages.push(`Kategori baru: "${category}".`);
             }
           }
@@ -250,9 +249,25 @@ export function ExcelImportModal({
     let updated = 0;
     let failed = 0;
 
+    // Baca ulang seluruh katalog sebelum menulis, termasuk data dari perangkat lain.
+    const currentProducts: Product[] = [];
+    try {
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from("products").select("id,name,product_code")
+          .order("id", { ascending: true }).range(from, from + 999);
+        if (error) throw error;
+        currentProducts.push(...(data ?? []) as Product[]);
+        if (!data || data.length < 1000) break;
+      }
+    } catch (error) {
+      console.error("Gagal membaca katalog sebelum import:", error);
+      setStep("preview");
+      alert("Katalog belum dapat dibaca. Import dibatalkan agar tidak membuat barang duplikat. Silakan coba lagi.");
+      return;
+    }
     const existingByCode = new Map<string, Product>();
     const existingByName = new Map<string, Product>();
-    for (const p of existingProducts) {
+    for (const p of currentProducts) {
       const code = String(p.product_code ?? "").trim().toLowerCase();
       const name = normalizeText(p.name);
       if (code) existingByCode.set(code, p);
@@ -273,25 +288,16 @@ export function ExcelImportModal({
 
       try {
         if (existingMatch && updateExisting) {
-          // UPDATE: Preserve image/badge/description if empty in Excel
-          const finalImage = row.image || (preserveExistingImages ? existingMatch.image : "");
-          const finalBadge = row.badge || existingMatch.badge || null;
-          const finalDescription = row.description || existingMatch.description || null;
-
+          // PATCH harga saja: kategori, merk, dan metadata tidak dikirim.
+          // Nilai kosong di Excel tidak menimpa harga yang sudah tersimpan.
           const payload = {
-            product_code: row.product_code || existingMatch.product_code || null,
-            name: row.name || existingMatch.name,
-            category: row.category || existingMatch.category,
-            retail: row.retail || existingMatch.retail,
-            wholesale: row.wholesale || existingMatch.wholesale,
-            super_wholesale: row.super_wholesale || existingMatch.superWholesale,
-            image: finalImage,
-            badge: finalBadge,
-            description: finalDescription,
+            ...(row.retail !== "" ? { retail: row.retail } : {}),
+            ...(row.wholesale !== "" ? { wholesale: row.wholesale } : {}),
+            ...(row.super_wholesale !== "" ? { super_wholesale: row.super_wholesale } : {}),
             updated_at: new Date().toISOString(),
           };
-
-          const { error } = await supabase.from("products").update(payload).eq("id", existingMatch.id);
+          const { error } = await supabase.from("products").update(payload)
+            .eq("id", existingMatch.id).select("id").single();
           if (error) throw error;
           updated++;
         } else if (!existingMatch) {
@@ -312,6 +318,9 @@ export function ExcelImportModal({
           const { data, error } = await supabase.from("products").insert(payload).select().single();
           if (error || !data) throw error || new Error("Gagal insert produk");
           inserted++;
+          // Baris selanjutnya juga mengenali produk yang baru saja ditambahkan.
+          if (normCode) existingByCode.set(normCode, data);
+          existingByName.set(normName, data);
 
           if (row.category && !existingCategoryNames.has(row.category.toLowerCase())) {
             newCategoriesToInsert.add(row.category);
@@ -573,16 +582,7 @@ export function ExcelImportModal({
                   color: "var(--ink)",
                 }}
               >
-                <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={preserveExistingImages}
-                    onChange={(e) => setPreserveExistingImages(e.target.checked)}
-                  />
-                  <span>
-                    <strong>Proteksi Gambar:</strong> Jangan hapus foto produk existing jika kolom gambar di Excel kosong
-                  </span>
-                </label>
+                <p style={{ margin: 0 }}>Kategori, merk, nama, kode, gambar, dan deskripsi barang lama tetap tersimpan. Kolom harga kosong tidak menghapus harga lama. Barang baru mengikuti data Excel dan belum memiliki merk.</p>
                 <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
                   <input
                     type="checkbox"
@@ -590,7 +590,7 @@ export function ExcelImportModal({
                     onChange={(e) => setUpdateExisting(e.target.checked)}
                   />
                   <span>
-                    <strong>Update Data:</strong> Perbarui harga dan info produk jika kode/nama sudah ada di database
+                    <strong>Update Data:</strong> Perbarui harga saja jika kode/nama sudah ada di database
                   </span>
                 </label>
                 <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
@@ -600,7 +600,7 @@ export function ExcelImportModal({
                     onChange={(e) => setAutoAddCategories(e.target.checked)}
                   />
                   <span>
-                    <strong>Kategori Baru:</strong> Daftarkan kategori baru secara otomatis jika belum ada di database
+                    <strong>Kategori Baru:</strong> Daftarkan kategori dari barang baru jika belum ada di database
                   </span>
                 </label>
               </div>

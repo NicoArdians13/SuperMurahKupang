@@ -3153,6 +3153,14 @@ function App() {
           const codeKey = product.product_code.toLowerCase();
           const nameKey = normalizeProductName(product.name);
           const existing = (codeKey && existingByCode.get(codeKey)) || existingByName.get(nameKey);
+          // Barang lama: PATCH harga saja. Jangan kirim kategori/merk atau
+          // metadata lain agar pengaturan manual di database tetap melekat.
+          const pricePayload = {
+            ...(product.retail !== "" ? { retail: product.retail } : {}),
+            ...(product.wholesale !== "" ? { wholesale: product.wholesale } : {}),
+            ...(product.super_wholesale !== "" ? { super_wholesale: product.super_wholesale } : {}),
+            updated_at: new Date().toISOString(),
+          };
           const payload = {
             product_code: product.product_code || null,
             name: product.name,
@@ -3167,7 +3175,7 @@ function App() {
           };
 
           const result = existing
-            ? await supabase.from("products").update(payload).eq("id", existing.id).select().single()
+            ? await supabase.from("products").update(pricePayload).eq("id", existing.id).select().single()
             : await supabase.from("products").insert(payload).select().single();
 
           if (result.error || !result.data) {
