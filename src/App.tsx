@@ -1,3 +1,8 @@
+import { AdminLoginPanel } from "./components/AdminLoginPanel";
+import { AdminCategoriesTab } from "./components/AdminCategoriesTab";
+import { useStorefrontContent, uploadContentImage } from "./lib/storefrontContent";
+import { AdminContentTab } from "./components/AdminContentTab";
+import { StorefrontContentSections } from "./components/StorefrontContentSections";
 import { supabase } from "./lib/supabase";
 import {
   ChangeEvent,
@@ -30,72 +35,33 @@ import {
   Tags,
   Truck,
   X,
+  Sparkles,
+  Users,
+  ShoppingBag,
 } from "lucide-react";
 import * as XLSX from "xlsx";
-
-type Category = {
-  id: number;
-  name: string;
-  image: string;
-};
-
-type Product = {
-  id: number;
-  product_code?: string | null;
-  name: string;
-  category: string;
-  image: string;
-  badge?: string | null;
-  retail: string;
-  wholesale: string;
-  superWholesale: string;
-  description?: string | null;
-};
-
-type Promotion = {
-  id: number;
-  image_url: string;
-  created_at?: string;
-};
-
-type AdminSection = "catalog" | "promotion" | "categories" | "orders";
-
-type OrderItem = {
-  id?: string;
-  productId: number | null;
-  code: string;
-  productName: string;
-  quantity: number;
-  price: number;
-};
-
-type Customer = {
-  id: string;
-  name: string;
-  whatsapp: string;
-  address: string;
-  notes: string;
-  createdAt: string;
-  updatedAt?: string;
-};
-
-type PaymentMethod = "cash" | "transfer" | "qris" | "debit" | "piutang";
-type PaymentStatus = "lunas" | "dp" | "belum_bayar" | "piutang";
-
-type StoreOrder = {
-  id: string;
-  databaseId?: string;
-  storeName: string;
-  customerId?: string | null;
-  orderDate: string;
-  items: OrderItem[];
-  createdAt: string;
-  deliveryStatus: "ambil_sendiri" | "diantar" | "belum_diantar";
-  paymentMethod: PaymentMethod;
-  paymentStatus: PaymentStatus;
-  dueDate: string;
-  notes: string;
-};
+import {
+  Category,
+  Product,
+  Promotion,
+  AdminSection,
+  OrderItem,
+  Customer,
+  StoreOrder,
+  PaymentMethod,
+  PaymentStatus,
+  MarketingSettings,
+} from "./types";
+import { AdminOverviewTab } from "./components/AdminOverviewTab";
+import { AdminMarketingTab } from "./components/AdminMarketingTab";
+import { AdminCustomersTab } from "./components/AdminCustomersTab";
+import { ExcelImportModal } from "./components/ExcelImportModal";
+import {
+  loadMarketingSettings,
+  saveMarketingSettings,
+} from "./lib/marketingSettings";
+import { openWhatsApp, normalizeWhatsAppPhone, STORE_PHONE_DISPLAY } from "./lib/whatsapp";
+import { trackEvent } from "./lib/analytics";
 
 const paymentMethodLabels: Record<PaymentMethod, string> = {
   cash: "Cash",
@@ -366,10 +332,33 @@ const removeStorageFileByUrl = async (
    APP
 ========================================================= */
 
+type PublicView = "home" | "catalog" | "categories" | "about" | "articles" | "promos";
+const publicRoutes: Record<PublicView, string> = { home: "home", catalog: "katalog", categories: "kategori", about: "about", articles: "artikel", promos: "promo" };
+const readPublicRoute = () => {
+  const [path, query = ""] = window.location.hash.replace(/^#\/?/, "").split("?");
+  const page = (Object.keys(publicRoutes) as PublicView[]).find((key) => publicRoutes[key] === path) || "home";
+  return { page, category: new URLSearchParams(query).get("category") || "Semua", search: new URLSearchParams(query).get("q") || "" };
+};
+
 function App() {
   /* =======================================================
      STATE
   ======================================================= */
+
+  const [publicView, setPublicView] = useState<PublicView>(() => readPublicRoute().page);
+  const navigatePublic = (page: PublicView, category = "Semua", search = "") => {
+    const params = new URLSearchParams();
+    if (page === "catalog" && category !== "Semua") params.set("category", category);
+    if (page === "catalog" && search.trim()) params.set("q", search.trim());
+    const hash = `#/${publicRoutes[page]}${params.size ? "?" + params.toString() : ""}`;
+    setMenuOpen(false);
+    setPublicView(page);
+    setActiveCategory(category);
+    setPublicSearch(search);
+    setPublicPage(1);
+    if (window.location.hash !== hash) window.location.hash = hash;
+    window.scrollTo({ top: 0, behavior: "instant" });
+  };
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -388,7 +377,7 @@ function App() {
     useState(true);
 
   const [activeCategory, setActiveCategory] =
-    useState("Semua");
+    useState(() => readPublicRoute().category);
 
   const [menuOpen, setMenuOpen] =
     useState(false);
@@ -399,6 +388,15 @@ function App() {
   const [isAdmin, setIsAdmin] =
     useState(false);
 
+  const content = useStorefrontContent(isAdmin);
+  useEffect(() => {
+    if (!adminOpen) void content.reload();
+  }, [adminOpen, publicView, content.reload]);
+  const [headerSearch, setHeaderSearch] = useState("");
+  const [catalogSort, setCatalogSort] = useState("default");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [homeSelection, setHomeSelection] = useState("selected");
   const [checkingAuth, setCheckingAuth] =
     useState(true);
 
@@ -426,13 +424,19 @@ function App() {
     useState("");
 
   const [publicSearch, setPublicSearch] =
-    useState("");
+    useState(() => readPublicRoute().search);
 
   const [publicPage, setPublicPage] =
     useState(1);
 
   const [adminSection, setAdminSection] =
-    useState<AdminSection>("catalog");
+    useState<AdminSection>("overview");
+
+  const [marketingSettings, setMarketingSettings] =
+    useState<MarketingSettings>(loadMarketingSettings);
+
+  const [excelModalOpen, setExcelModalOpen] =
+    useState(false);
 
   const [orders, setOrders] = useState<StoreOrder[]>(() => {
     try {
@@ -462,6 +466,7 @@ function App() {
   const [orderProductSearch, setOrderProductSearch] = useState("");
   const [orderQuantity, setOrderQuantity] = useState("1");
   const [orderPrice, setOrderPrice] = useState("");
+  const [orderPriceMode, setOrderPriceMode] = useState<"system" | "manual">("system");
   const [orderCode, setOrderCode] = useState("");
   const [orderSearch, setOrderSearch] = useState("");
   const [orderStartDate, setOrderStartDate] = useState(() => localDateString(new Date(Date.now() - 30 * 86400000)));
@@ -541,12 +546,40 @@ function App() {
     }
   }, [cart]);
 
+  useEffect(() => {
+    if (!adminOpen && !editorOpen && !selectedReceipt && !selectedProduct && !editingCustomer && !excelModalOpen && !cartOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, [adminOpen, editorOpen, selectedReceipt, selectedProduct, editingCustomer, excelModalOpen, cartOpen]);
+
+  useEffect(() => {
+    const syncRoute = () => {
+      const route = readPublicRoute();
+      setPublicView(route.page);
+      setActiveCategory(route.category);
+      setPublicSearch(route.search);
+      setPublicPage(1);
+      setMenuOpen(false);
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener("hashchange", syncRoute);
+    return () => window.removeEventListener("hashchange", syncRoute);
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setMenuOpen(false); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [menuOpen]);
+
   /* =======================================================
      CONSTANTS
   ======================================================= */
 
   const storeLogo =
-    "/supermurahkupang.png";
+    "/logo-nota.png";
 
   /* =======================================================
      AUTH ADMIN
@@ -607,7 +640,8 @@ function App() {
     } =
       supabase.auth.onAuthStateChange(
         () => {
-          checkAdmin();
+          // Run outside the auth callback to avoid waiting on Supabase's auth lock.
+          window.setTimeout(() => { void checkAdmin(); }, 0);
         },
       );
 
@@ -967,9 +1001,14 @@ function App() {
     loadProducts();
     loadCategories();
     loadPromotions();
-    loadCustomers();
-    loadOrders();
   }, []);
+
+  // Private data is requested after admin verification, including after login.
+  useEffect(() => {
+    if (!isAdmin) return;
+    void loadCustomers();
+    void loadOrders();
+  }, [isAdmin]);
 
   /* =======================================================
      REALTIME
@@ -1076,6 +1115,19 @@ function App() {
    * Filter kategori dibuat case-insensitive
    * agar "Dapur" dan "dapur" tidak dianggap berbeda.
    */
+  const publicCategories = useMemo(() => {
+    const result = [...categories];
+    const seen = new Set(result.map((category) => category.name.trim().toLowerCase()));
+    for (const product of products) {
+      const name = product.category.trim();
+      if (name && !seen.has(name.toLowerCase())) {
+        seen.add(name.toLowerCase());
+        result.push({ id: -result.length - 1, name, image: product.image || getDefaultCategoryImage(name) });
+      }
+    }
+    return result;
+  }, [categories, products]);
+
   const filteredProducts = useMemo(() => {
     if (activeCategory === "Semua") {
       return products;
@@ -1108,7 +1160,7 @@ function App() {
           .trim()
           .toLowerCase();
 
-      if (keyword.length < 2) {
+      if (!keyword) {
         return filteredProducts;
       }
 
@@ -1117,6 +1169,7 @@ function App() {
           const searchableText =
             [
               product.name,
+              product.product_code ?? "",
               product.category,
               product.description ?? "",
               product.badge ?? "",
@@ -1138,13 +1191,25 @@ function App() {
      PAGINATION
   ======================================================= */
 
+  const displayedCatalogProducts = useMemo(() => {
+    const list = publicFilteredProducts.filter(product => {
+      const price = priceNumber(product.retail);
+      return (!minPrice || price >= Number(minPrice)) && (!maxPrice || price <= Number(maxPrice));
+    });
+    if (catalogSort === "price-asc") list.sort((a, b) => priceNumber(a.retail) - priceNumber(b.retail));
+    if (catalogSort === "price-desc") list.sort((a, b) => priceNumber(b.retail) - priceNumber(a.retail));
+    if (catalogSort === "name") list.sort((a, b) => a.name.localeCompare(b.name, "id"));
+    if (catalogSort === "newest") list.sort((a, b) => b.id - a.id);
+    return list;
+  }, [publicFilteredProducts, minPrice, maxPrice, catalogSort]);
+  useEffect(() => { setPublicPage(1); }, [minPrice, maxPrice, catalogSort]);
   const productsPerPage = 12;
 
   const totalPublicPages =
     Math.max(
       1,
       Math.ceil(
-        publicFilteredProducts.length /
+        displayedCatalogProducts.length /
           productsPerPage,
       ),
     );
@@ -1190,7 +1255,7 @@ function App() {
     );
 
   const visibleProducts =
-    publicFilteredProducts.slice(
+    displayedCatalogProducts.slice(
       (safePublicPage - 1) *
         productsPerPage,
       safePublicPage *
@@ -1222,6 +1287,48 @@ function App() {
       products,
       adminSearch,
     ]);
+
+  const featuredProducts = useMemo(
+    () =>
+      products.filter(
+        (p) =>
+          p.badge?.toLowerCase().includes("pilihan") ||
+          p.badge?.toLowerCase().includes("featured"),
+      ),
+    [products],
+  );
+
+  const bestSellerProducts = useMemo(() => {
+    const tagged = products.filter((p) =>
+      p.badge?.toLowerCase().includes("best seller"),
+    );
+    if (tagged.length > 0) return tagged;
+
+    // Fallback: derive from real order history
+    const map = new Map<string, number>();
+    for (const o of orders) {
+      for (const it of o.items) {
+        const key = it.productName.trim().toLowerCase();
+        map.set(key, (map.get(key) || 0) + it.quantity);
+      }
+    }
+
+    const orderedOnly = products.filter(
+      (p) => (map.get(p.name.trim().toLowerCase()) || 0) > 0,
+    );
+
+    if (orderedOnly.length > 0) {
+      return [...orderedOnly]
+        .sort(
+          (a, b) =>
+            (map.get(b.name.trim().toLowerCase()) || 0) -
+            (map.get(a.name.trim().toLowerCase()) || 0),
+        )
+        .slice(0, 6);
+    }
+
+    return products.slice(0, 4);
+  }, [products, orders]);
 
   /* =======================================================
      RESET PUBLIC PAGE
@@ -1303,8 +1410,12 @@ function App() {
     if (!selectedOrderProduct) return;
 
     setOrderCode(selectedOrderProduct.product_code ?? "");
+  }, [orderProductId]);
+
+  useEffect(() => {
+    if (!selectedOrderProduct || orderPriceMode === "manual") return;
     setOrderPrice(String(getPrice(selectedOrderProduct, Number(orderQuantity) || 1)));
-  }, [orderProductId, orderQuantity, products]);
+  }, [orderProductId, orderQuantity, products, orderPriceMode]);
 
   const orderTotal = (order: StoreOrder | { items: OrderItem[] }) =>
     order.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -1474,6 +1585,12 @@ function App() {
 
   const startEditOrder = (order: StoreOrder) => {
     setEditingOrderId(order.id);
+    setOrderProductId("");
+    setOrderProductSearch("");
+    setOrderQuantity("1");
+    setOrderPrice("");
+    setOrderPriceMode("system");
+    setOrderCode("");
     setOrderStoreName(order.storeName);
     setSelectedCustomerId(order.customerId ?? "");
     setCustomerSearch(order.storeName);
@@ -1498,6 +1615,7 @@ function App() {
     setOrderQuantity("1");
     setOrderCode("");
     setOrderPrice("");
+    setOrderPriceMode("system");
     setPaymentMethod("cash");
     setPaymentStatus("belum_bayar");
     setDueDate("");
@@ -1527,7 +1645,7 @@ function App() {
   };
 
   const addOrderItem = () => {
-    if (!selectedOrderProduct || (Number(orderQuantity) || 0) < 1 || priceNumber(orderPrice) < 1) {
+    if (!selectedOrderProduct || !Number.isInteger(Number(orderQuantity)) || Number(orderQuantity) < 1 || !Number.isFinite(priceNumber(orderPrice)) || priceNumber(orderPrice) < 1) {
       alert("Pilih barang, isi qty, dan pastikan harga lebih dari 0.");
       return;
     }
@@ -1540,10 +1658,10 @@ function App() {
       price: priceNumber(orderPrice),
     };
     setOrderItems((items) => {
-      const existing = items.findIndex((item) => item.productId === nextItem.productId);
+      const existing = items.findIndex((item) => item.productId === nextItem.productId && item.price === nextItem.price && item.code === nextItem.code);
       if (existing === -1) return [...items, nextItem];
       return items.map((item, index) => index === existing
-        ? { ...item, quantity: item.quantity + nextItem.quantity, price: nextItem.price }
+        ? { ...item, quantity: item.quantity + nextItem.quantity }
         : item);
     });
     setOrderProductId("");
@@ -1551,6 +1669,7 @@ function App() {
     setOrderQuantity("1");
     setOrderCode("");
     setOrderPrice("");
+    setOrderPriceMode("system");
   };
 
   const saveOrder = async (event: FormEvent) => {
@@ -1560,7 +1679,7 @@ function App() {
       alert("Isi nama toko dan tambahkan minimal satu barang.");
       return;
     }
-    if (orderItems.some((item) => item.quantity <= 0 || item.price < 0)) {
+    if (orderItems.some((item) => !Number.isInteger(item.quantity) || item.quantity <= 0 || !Number.isFinite(item.price) || item.price < 0)) {
       alert("Qty harus lebih dari 0 dan harga tidak boleh negatif.");
       return;
     }
@@ -1573,35 +1692,9 @@ function App() {
     const wasEditing = Boolean(editingOrderId);
     const existingOrder = editingOrderId ? orders.find((item) => item.id === editingOrderId) : undefined;
     const nextPaymentStatus = paymentMethod === "piutang" ? "piutang" : paymentStatus;
-    let itemsForSave = orderItems;
-    if (!wasEditing) {
-      const productIds = Array.from(new Set(orderItems.map((item) => item.productId).filter((id): id is number => id !== null)));
-      const { data: latestProducts, error: latestProductsError } = await supabase
-        .from("products")
-        .select("id, product_code, name, category, image, retail, wholesale, super_wholesale, badge, description")
-        .in("id", productIds);
-      if (latestProductsError) {
-        setOrderError(latestProductsError.message);
-        alert(`Harga terbaru gagal dimuat. Pesanan belum disimpan.\n\n${latestProductsError.message}`);
-        setSavingOrder(false);
-        return;
-      }
-      const latestById = new Map((latestProducts ?? []).map((product: any) => [Number(product.id), normalizeProduct(product)]));
-      if (latestById.size !== productIds.length) {
-        setOrderError("Ada produk pesanan yang sudah tidak tersedia di Supabase.");
-        alert("Ada produk pesanan yang sudah tidak tersedia di Supabase. Pesanan belum disimpan.");
-        setSavingOrder(false);
-        return;
-      }
-      itemsForSave = orderItems.map((item) => {
-        const latest = latestById.get(item.productId as number)!;
-        return {
-          ...item,
-          productName: latest.name,
-          price: getPrice(latest, item.quantity),
-        };
-      });
-    }
+    // The confirmed draft is the price agreement, in either manual or system
+    // mode. Never re-price confirmed lines while saving or printing the receipt.
+    const itemsForSave = orderItems.map(item => ({ ...item }));
     const order: StoreOrder = {
       id: editingOrderId || `TRX-${Date.now().toString(36).toUpperCase()}`,
       storeName: orderStoreName.trim(),
@@ -1933,14 +2026,14 @@ function App() {
      CART ACTIONS
   ======================================================= */
 
-  const addToCart = (
-    product: Product,
-  ) => {
+  const addToCart = (product: Product) => {
+    trackEvent("add_to_cart", {
+      productId: product.id,
+      productName: product.name,
+    });
     setCart((items) => ({
       ...items,
-      [product.id]:
-        (items[product.id] || 0) +
-        1,
+      [product.id]: (items[product.id] || 0) + 1,
     }));
   };
 
@@ -1971,10 +2064,8 @@ function App() {
   ======================================================= */
 
   const whatsapp = () => {
-    window.open(
-      "https://wa.me/6285755463065?text=Halo%20SUPER%20MURAH%20KUPANG%2C%20saya%20ingin%20bertanya%20tentang%20produk.",
-      "_blank",
-    );
+    trackEvent("whatsapp_click", { intent: "general" });
+    openWhatsApp("general");
   };
 
   /* =======================================================
@@ -1986,59 +2077,40 @@ function App() {
       return;
     }
 
-    const lines =
-      cartItems.map((product) => {
-        const quantity =
-          cart[product.id];
+    const checkoutItems = cartItems.map((product) => {
+      const quantity = cart[product.id] || 0;
+      const unitPrice = getPrice(product, quantity);
+      return {
+        name: product.name,
+        quantity,
+        unitPrice,
+        subtotal: unitPrice * quantity,
+      };
+    });
 
-        const unitPrice =
-          getPrice(
-            product,
-            quantity,
-          );
-
-        return `- ${product.name} (${quantity} pcs) x ${formatRupiah(unitPrice)} = ${formatRupiah(unitPrice * quantity)}`;
-      });
-
-    const total =
-      cartItems.reduce(
-        (sum, product) =>
-          sum +
-          getPrice(
-            product,
-            cart[product.id],
-          ) *
-            cart[product.id],
-        0,
-      );
+    const total = checkoutItems.reduce((sum, item) => sum + item.subtotal, 0);
 
     const tier =
-      cartItems.some(
-        (product) =>
-          (cart[product.id] || 0) >=
-          36,
-      )
-        ? "Harga dihitung per produk (ada produk super grosir)"
-        : cartItems.some(
-              (product) =>
-                (cart[product.id] ||
-                  0) >= 6,
-            )
-          ? "Harga dihitung per produk (ada produk grosir)"
-          : "Harga ecer";
+      cartItems.some((product) => (cart[product.id] || 0) >= 36)
+        ? "Super Grosir (≥36 pcs)"
+        : cartItems.some((product) => (cart[product.id] || 0) >= 6)
+          ? "Grosir (≥6 pcs)"
+          : "Harga Ecer";
 
-    const message =
-      `Halo SUPER MURAH KUPANG, saya ingin checkout:\n\n` +
-      `${lines.join("\n")}\n\n` +
-      `Total barang: ${totalQuantity} pcs\n` +
-      `Kategori harga: ${tier}\n` +
-      `Total belanja: ${formatRupiah(total)}\n\n` +
-      `Nama pemesan: `;
+    trackEvent("checkout", {
+      itemCount: totalQuantity,
+      totalAmount: total,
+      tier,
+    });
 
-    window.open(
-      `https://wa.me/6285755463065?text=${encodeURIComponent(message)}`,
-      "_blank",
-    );
+    openWhatsApp("checkout", {
+      checkout: {
+        items: checkoutItems,
+        totalQuantity,
+        totalPriceFormatted: formatRupiah(total),
+        tierLabel: tier,
+      },
+    });
   };
 
   /* =======================================================
@@ -2104,9 +2176,7 @@ function App() {
     async (
       event: ChangeEvent<HTMLInputElement>,
     ) => {
-      const file =
-        event.target.files?.[0];
-
+      const file = event.target.files?.[0];
       event.target.value = "";
 
       if (
@@ -2732,12 +2802,10 @@ function App() {
   const uploadPromotionImage =
     async (
       promotionId: number,
-      event: ChangeEvent<HTMLInputElement>,
+      source: File | ChangeEvent<HTMLInputElement>,
     ) => {
-      const file =
-        event.target.files?.[0];
-
-      event.target.value = "";
+      const file = source instanceof File ? source : source.target.files?.[0];
+      if (!(source instanceof File)) source.target.value = "";
 
       if (
         !file ||
@@ -3272,248 +3340,47 @@ function App() {
 
   return (
     <main>
-      {/* ===================================================
-          ANNOUNCEMENT
-      =================================================== */}
-
-      <div className="announcement">
-        Pusat grosir perabot rumah tangga
-        terpercaya di Kupang{" "}
-        <ArrowRight size={15} />
-      </div>
-
-      {/* ===================================================
-          NAVBAR
-      =================================================== */}
-
-      <nav className="nav shell">
-        <a
-          className="brand"
-          href="#top"
-        >
-          <img
-            className="store-logo"
-            src={storeLogo}
-            alt="Logo"
-          />
-
-          <span>SUPER</span>{" "}
-          MURAH
-          <span className="brand-dot">
-            .
-          </span>
-
-          <small>KUPANG</small>
-        </a>
-
-        <div
-          className={`nav-links ${
-            menuOpen ? "open" : ""
-          }`}
-        >
-          <a
-            href="#koleksi"
-            onClick={() =>
-              setMenuOpen(false)
-            }
-          >
-            Koleksi{" "}
-            <ChevronDown
-              size={15}
-            />
-          </a>
-
-          <a
-            href="#unggulan"
-            onClick={() =>
-              setMenuOpen(false)
-            }
-          >
-            Harga Grosir
-          </a>
-
-          <a
-            href="#tentang"
-            onClick={() =>
-              setMenuOpen(false)
-            }
-          >
-            Tentang Kami
-          </a>
-        </div>
-
-        <div className="nav-actions">
-          <button
-            className="admin-link"
-            onClick={() => {
-              setAdminOpen(true);
-              setLoginError("");
-            }}
-          >
-            <LogIn size={16} />
-            Admin
+      <div className="public-site" hidden={adminOpen && isAdmin}>
+      <header className="store-header">
+        <nav className="store-nav shell" aria-label="Navigasi utama">
+          <button type="button" className="store-menu-toggle" aria-label={menuOpen ? "Tutup menu" : "Buka menu"} aria-expanded={menuOpen} aria-controls="store-menu" onClick={() => setMenuOpen(!menuOpen)}>
+            {menuOpen ? <X size={23} /> : <Menu size={23} />}<span>Menu</span>
           </button>
-
-          <button
-            className="order-btn"
-            onClick={whatsapp}
-          >
-            Pesan via WhatsApp{" "}
-            <ArrowRight size={16} />
-          </button>
-
-          <button
-            className="menu-btn"
-            onClick={() =>
-              setMenuOpen(
-                !menuOpen,
-              )
-            }
-          >
-            {menuOpen ? (
-              <X />
-            ) : (
-              <Menu />
-            )}
-          </button>
-        </div>
-      </nav>
-
-      {/* ===================================================
-          HERO
-      =================================================== */}
-
-      <section
-        className="hero shell"
-        id="top"
-      >
-        <div className="hero-copy">
-          <p className="eyebrow">
-            Grosir perabot rumah tangga
-            Kupang
-          </p>
-
-          <h1>
-            Harga super murah,
-            <br />
-            <em>pilihan</em> serba
-            lengkap.
-          </h1>
-
-          <p className="hero-text">
-            Belanja perabot rumah tangga
-            untuk kebutuhan rumah, toko,
-            kos, dan usaha Anda. Ada harga
-            ecer, grosir, dan super grosir.
-          </p>
-
-          <div className="hero-cta">
-            <button
-              className="primary-btn"
-              onClick={() =>
-                document
-                  .getElementById(
-                    "unggulan",
-                  )
-                  ?.scrollIntoView({
-                    behavior:
-                      "smooth",
-                  })
-              }
-            >
-              Lihat katalog{" "}
-              <ArrowRight size={17} />
-            </button>
-
-            <button
-              className="play-btn"
-              onClick={whatsapp}
-            >
-              <span>✆</span>
-              Tanya stok kami
-            </button>
+          <a href="#/home" className="store-brand" onClick={(event) => { event.preventDefault(); navigatePublic("home"); }} aria-label="SUPER MURAH KUPANG — Home">
+            <img src={storeLogo} alt="SUPER MURAH KUPANG" />
+          </a>
+          <form className="header-search" role="search" onSubmit={event => { event.preventDefault(); navigatePublic("catalog", "Semua", headerSearch); }}><input aria-label="Cari produk di toko" placeholder="Cari produk..." value={headerSearch} onChange={event => setHeaderSearch(event.target.value)} /><button aria-label="Cari produk" type="submit"><Search size={20} /></button></form>
+          <div className="store-nav-actions">
+            <button type="button" className="cart-toggle-btn" aria-label={`Keranjang, ${totalQuantity} barang`} onClick={() => setCartOpen(true)}><ShoppingBag size={19} /><span className="action-label">Keranjang</span>{totalQuantity > 0 && <span className="cart-badge">{totalQuantity}</span>}</button>
+            <button type="button" className="admin-link" aria-label="Admin" onClick={() => { setAdminOpen(true); setLoginError(""); }}><LogIn size={18} /><span>Admin</span></button>
           </div>
-        </div>
+        </nav>
+        <div className="shop-category-rail"><div className="shell"><button onClick={() => navigatePublic("catalog")}>Semua Produk</button>{publicCategories.slice(0, 7).map(category => <button key={category.id} onClick={() => navigatePublic("catalog", category.name)}>{category.name}</button>)}<button onClick={() => navigatePublic("articles")}>Artikel</button><button onClick={() => navigatePublic("promos")}>Promo</button></div></div>
+        {menuOpen && <>
+          <button className="store-menu-scrim" aria-label="Tutup menu navigasi" onClick={() => setMenuOpen(false)} />
+          <nav id="store-menu" className="store-menu" aria-label="Halaman toko">
+            <p>Jelajahi toko</p>
+            {([["home", "Home", "Tampilan depan"], ["catalog", "Katalog", "Semua produk"], ["categories", "Kategori", "Produk sesuai kebutuhan"], ["about", "About", "Tentang toko"], ["articles", "Artikel", "Inspirasi & tips"], ["promos", "Promo", "Penawaran toko"]] as const).map(([page, label, description]) => <a key={page} href={`#/${publicRoutes[page]}`} aria-current={publicView === page ? "page" : undefined} onClick={(event) => { event.preventDefault(); navigatePublic(page); }}><span><strong>{label}</strong><small>{description}</small></span><ArrowRight size={18} /></a>)}
+          </nav>
+        </>}
+      </header>
 
-        <div className="hero-image">
-          {promotionsLoading ? (
-            <div className="hero-image-loading">
-              <span>
-                Memuat promosi...
-              </span>
-            </div>
-          ) : heroPromotion ? (
-            <img
-              src={heroPromotion}
-              alt="Promosi"
-              loading="eager"
-              decoding="async"
-            />
-          ) : (
-            <div className="hero-image-empty">
-              <span>
-                Belum ada gambar
-                promosi
-              </span>
-            </div>
-          )}
+      <div className="public-page" key={publicView}>
+      {publicView === "home" && <>
+        <section className="shop-banner shell" aria-label="Promosi utama">{heroPromotion ? <img src={heroPromotion} alt="Promo SUPER MURAH KUPANG" /> : <div className="shop-banner-fallback"><div><p>SUPER MURAH KUPANG</p><h1>Pilihan lengkap.<br /><span>Belanja lebih hemat.</span></h1><p>Perabot rumah & perlengkapan usaha dalam satu tempat.</p><button className="primary-btn" onClick={() => navigatePublic("catalog")}>Jelajahi Produk <ArrowRight size={17} /></button></div><Store size={120} strokeWidth={1} /></div>}</section>
+        <section className="home-selection shell" aria-label="Produk pilihan">
+          <div className="shop-section-heading"><h2>Produk Pilihan</h2><div className="shop-product-tabs">{[["selected", "Produk Pilihan"], ["best", "Penjualan Terbaik"], ["new", "Produk Terbaru"]].map(([value, label]) => <button className={homeSelection === value ? "active" : ""} onClick={() => setHomeSelection(value)} key={value}>{label}</button>)}</div></div>
 
-          <div className="hero-note">
-            <span className="note-line" />
+          {productsLoading ? <p className="empty-catalog">Memuat produk...</p> : productsError ? <div className="empty-catalog"><p>Produk belum berhasil dimuat.</p><button className="secondary-btn" onClick={loadProducts}>Coba lagi</button></div> : <div className="product-grid home-product-grid">{(homeSelection === "new" ? [...products].sort((a,b) => b.id-a.id) : homeSelection === "best" ? bestSellerProducts : featuredProducts.length ? featuredProducts : products).slice(0, 12).map((product) => <article className="product-card" key={product.id}><button className="home-product-photo" onClick={() => setSelectedProduct(product)} aria-label={`Lihat detail ${product.name}`}><img src={product.image || getDefaultCategoryImage(product.category)} alt={product.name} loading="lazy" /></button><div className="product-info"><p className="product-category">{product.category}</p><h3>{product.name}</h3><p className="product-description">{product.description || "Lihat detail untuk informasi produk."}</p><strong>{formatRupiah(getPrice(product, 1))}</strong><button className="secondary-btn" onClick={() => setSelectedProduct(product)}>Lihat detail <ArrowRight size={15} /></button></div></article>)}</div>}
+          {!productsLoading && !productsError && !products.length && <p className="empty-catalog">Belum ada produk untuk ditampilkan.</p>}
+          <button className="article-read all-products-link" onClick={() => navigatePublic("catalog")}>Lihat semua produk <ArrowRight size={16} /></button>
+        </section>
+        <StorefrontContentSections items={content.items} loading={content.loading} error={content.error} onReload={content.reload} />
+      </>}
+      {publicView === "articles" && <><div className="content-page-heading shell"><p className="eyebrow">Inspirasi & tips</p><h1>Artikel Super Murah Kupang</h1><p>Temukan inspirasi untuk rumah dan kebutuhan usaha Anda.</p></div><StorefrontContentSections items={content.items} loading={content.loading} error={content.error} onReload={content.reload} articlesOnly /></>}
+      {publicView === "promos" && <><div className="content-page-heading shell"><p className="eyebrow">Penawaran toko</p><h1>Promo Super Murah Kupang</h1><p>Lihat penawaran yang sedang berlaku beserta rincian dan syaratnya.</p></div><StorefrontContentSections items={content.items} loading={content.loading} error={content.error} onReload={content.reload} promosOnly /></>}
 
-            <span>
-              Harga bersahabat,
-              <br />
-              stok bersahabat.
-            </span>
-          </div>
-        </div>
-      </section>
-
-      {/* ===================================================
-          TRUST BAR
-      =================================================== */}
-
-      <section className="trust-bar">
-        <div className="shell trust-items">
-          <div>
-            <strong>3x</strong>
-            <span>
-              Pilihan harga
-              <br />
-              sesuai kebutuhan
-            </span>
-          </div>
-
-          <div>
-            <strong>1000+</strong>
-            <span>
-              Produk siap
-              <br />
-              dikirim
-            </span>
-          </div>
-
-          <div>
-            <strong>KPG</strong>
-            <span>
-              Melayani Kupang
-              <br />
-              dan sekitarnya
-            </span>
-          </div>
-
-          <div className="trust-quote">
-            “Belanja banyak makin hemat,
-            <br />
-            <em>
-              cocok untuk toko dan usaha.
-            </em>
-            ”
-          </div>
-        </div>
-      </section>
-
+      {publicView === "categories" && <>
       {/* ===================================================
           CATEGORY
       =================================================== */}
@@ -3522,50 +3389,17 @@ function App() {
         className="section shell"
         id="koleksi"
       >
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">
-              Cari berdasarkan
-              kebutuhan
-            </p>
-
-            <h2>
-              Lengkapi setiap
-              <br />
-              <em>sudut rumah.</em>
-            </h2>
-          </div>
-
-          <p className="section-intro">
-            Katalog perabot fungsional
-            dengan pilihan harga transparan
-            untuk pembelian satuan sampai
-            besar.
-          </p>
-        </div>
-
+        <div className="page-heading"><div><p className="eyebrow">Jelajahi koleksi</p><h1>Kategori produk</h1><p>Pilih kategori untuk melihat produk yang sesuai.</p></div></div>
+        {!publicCategories.length && <p className="empty-catalog">Kategori belum tersedia.</p>}
         <div className="category-grid">
-          {categories.map(
+          {publicCategories.map(
             (category, index) => (
               <button
                 className={`category-card category-${
                   index % 4
                 }`}
                 key={category.id}
-                onClick={() => {
-                  setActiveCategory(
-                    category.name,
-                  );
-
-                  document
-                    .getElementById(
-                      "unggulan",
-                    )
-                    ?.scrollIntoView({
-                      behavior:
-                        "smooth",
-                    });
-                }}
+                onClick={() => navigatePublic("catalog", category.name)}
               >
                 <img
                   src={
@@ -3592,6 +3426,8 @@ function App() {
         </div>
       </section>
 
+      </>}
+      {publicView === "catalog" && <>
       {/* ===================================================
           FEATURED / PRODUCT CATALOG
       =================================================== */}
@@ -3600,92 +3436,11 @@ function App() {
         className="featured section"
         id="unggulan"
       >
-        <div className="shell">
-          <div className="section-heading featured-heading">
-            <div>
-              <p className="eyebrow">
-                Katalog terbaru
-              </p>
-
-              <h2>
-                Harga{" "}
-                <em>terbaik.</em>
-              </h2>
-            </div>
-
-            <div className="catalog-actions">
-              <label className="public-search catalog-search">
-                <Search size={18} />
-
-                <input
-                  value={
-                    publicSearch
-                  }
-                  onChange={(e) => {
-                    setPublicSearch(
-                      e.target.value,
-                    );
-                  }}
-                  placeholder="Cari nama barang..."
-                />
-
-                {publicSearch && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPublicSearch(
-                        "",
-                      )
-                    }
-                  >
-                    <X size={14} />
-                  </button>
-                )}
-              </label>
-
-              <div className="filters">
-                {[
-                  "Semua",
-                  ...categoryNames,
-                ].map((cat) => (
-                  <button
-                    className={
-                      activeCategory ===
-                      cat
-                        ? "active"
-                        : ""
-                    }
-                    key={cat}
-                    onClick={() =>
-                      setActiveCategory(
-                        cat,
-                      )
-                    }
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="price-legend">
-            <span>
-              <i className="retail-dot" />
-              Ecer
-            </span>
-
-            <span>
-              <i className="wholesale-dot" />
-              Grosir
-            </span>
-
-            <span>
-              <i className="super-dot" />
-              Super grosir
-            </span>
-          </div>
-
+        <div className="shell shop-catalog-layout">
+          <aside className="shop-catalog-sidebar" aria-label="Filter produk"><h2>Filter Produk</h2><h3>Kategori</h3><button className={activeCategory === "Semua" ? "active" : ""} onClick={() => navigatePublic("catalog")}>Semua kategori</button>{publicCategories.map(category => <button className={activeCategory === category.name ? "active" : ""} key={category.id} onClick={() => navigatePublic("catalog", category.name)}>{category.name}<span>{products.filter(product => product.category.toLowerCase() === category.name.toLowerCase()).length}</span></button>)}<h3>Harga ecer</h3><label>Minimum<input aria-label="Harga minimum" type="number" min="0" value={minPrice} onChange={e => setMinPrice(e.target.value)} placeholder="Rp min" /></label><label>Maksimum<input aria-label="Harga maksimum" type="number" min="0" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} placeholder="Rp max" /></label><button className="reset-filter" onClick={() => { setMinPrice(""); setMaxPrice(""); setCatalogSort("default"); navigatePublic("catalog"); }}>Hapus filter</button></aside>
+          <div className="shop-catalog-main">
+          <div className="catalog-titlebar"><div><h1>{activeCategory === "Semua" ? "Semua katalog" : `Katalog ${activeCategory}`}</h1><p>Ditemukan {displayedCatalogProducts.length} produk untuk Anda</p></div><label>Urutkan<select aria-label="Urutan produk" value={catalogSort} onChange={e => setCatalogSort(e.target.value)}><option value="default">Rekomendasi</option><option value="newest">Terbaru</option><option value="price-asc">Harga terendah</option><option value="price-desc">Harga tertinggi</option><option value="name">Nama A–Z</option></select></label></div>
+          <label className="public-search catalog-search"><Search size={18} /><input aria-label="Cari di katalog" value={publicSearch} onChange={e => setPublicSearch(e.target.value)} placeholder="Cari nama barang..." /></label>
           {/* =================================================
               ERROR LOAD PRODUCTS
           ================================================= */}
@@ -3807,6 +3562,7 @@ function App() {
                           <input
                             type="number"
                             min="0"
+                            className="qty-input"
                             value={
                               cart[
                                 product.id
@@ -3825,20 +3581,6 @@ function App() {
                                 ) || 0,
                               )
                             }
-                            style={{
-                              width:
-                                "35px",
-                              textAlign:
-                                "center",
-                              border:
-                                "none",
-                              background:
-                                "transparent",
-                              fontWeight:
-                                "bold",
-                              fontSize:
-                                "14px",
-                            }}
                           />
 
                           <button
@@ -3867,6 +3609,7 @@ function App() {
                               product.name
                             }
                           </h3>
+                          <p className="product-description">{product.description || "Lihat detail untuk informasi produk."}</p>
                         </div>
 
                         <div className="price-stack">
@@ -3902,7 +3645,7 @@ function App() {
                 )}
               </div>
 
-              {publicFilteredProducts.length ===
+              {displayedCatalogProducts.length ===
                 0 && (
                 <p className="empty-catalog">
                   {publicSearch.trim()
@@ -3974,272 +3717,46 @@ function App() {
             </>
           )}
 
-          {/* =================================================
-              CART
-          ================================================= */}
-
-          <div className="cart-bar">
-            <div>
-              <strong>
-                {totalQuantity} pcs di
-                keranjang
-              </strong>
-
-              <span>
-                {cartItems.some(
-                  (p) =>
-                    (cart[
-                      p.id
-                    ] || 0) >= 36,
-                )
-                  ? "Harga super grosir aktif"
-                  : cartItems.some(
-                        (p) =>
-                          (cart[
-                            p.id
-                          ] || 0) >= 6,
-                      )
-                    ? "Harga grosir aktif"
-                    : "Tambah 6 pcs untuk harga grosir"}
-              </span>
-            </div>
-
-            <strong>
-              {formatRupiah(
-                cartItems.reduce(
-                  (
-                    sum,
-                    product,
-                  ) =>
-                    sum +
-                    getPrice(
-                      product,
-                      cart[
-                        product.id
-                      ],
-                    ) *
-                      cart[
-                        product.id
-                      ],
-                  0,
-                ),
-              )}
-            </strong>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => setCartOpen(true)}
-                disabled={!cartItems.length}
-                style={{
-                  minHeight: "46px",
-                  padding: "0 18px",
-                  border: "1px solid rgba(255,255,255,0.28)",
-                  background: "transparent",
-                  color: "inherit",
-                  font: "inherit",
-                  fontWeight: 700,
-                  cursor: cartItems.length ? "pointer" : "not-allowed",
-                  opacity: cartItems.length ? 1 : 0.55,
-                }}
-              >
-                Lihat keranjang
-              </button>
-
-              <button
-                className="primary-btn"
-                onClick={checkout}
-                disabled={!cartItems.length}
-              >
-                Checkout via WhatsApp{" "}
-                <MessageCircle
-                  size={17}
-                />
-              </button>
-            </div>
-          </div>
+        </div>
         </div>
       </section>
+      </>}
+      {publicView === "about" && <section className="about-page shell" aria-labelledby="about-title"><p className="eyebrow">Tentang kami</p><h1 id="about-title">SUPER MURAH KUPANG</h1><p>SUPER MURAH KUPANG menyediakan berbagai perabot dan perlengkapan untuk kebutuhan rumah, toko, serta usaha.</p><p>Gunakan halaman Katalog untuk melihat seluruh produk, atau pilih Kategori untuk menemukan barang sesuai kebutuhan. Tambahkan pilihan Anda ke keranjang dan lanjutkan pemesanan melalui WhatsApp.</p><button className="primary-btn" onClick={() => navigatePublic("catalog")}>Jelajahi Katalog <ArrowRight size={17} /></button></section>}
+      </div>
 
       {/* ===================================================
-          BENEFITS
+          15. FOOTER
       =================================================== */}
 
-      <section
-        className="benefits shell"
-        id="tentang"
-      >
-        <div className="benefit-photo">
-          {promotionsLoading ? (
-            <div className="benefit-photo-loading">
-              <span>
-                Memuat...
-              </span>
-            </div>
-          ) : lowerPromotion ? (
-            <img
-              src={lowerPromotion}
-              alt="Promosi bawah"
-              loading="lazy"
-            />
-          ) : (
-            <div className="benefit-photo-empty">
-              <span>
-                Belum ada gambar
-              </span>
-            </div>
-          )}
-        </div>
-
-        <div className="benefit-copy">
-          <p className="eyebrow">
-            Kenapa SUPER MURAH
-            KUPANG?
-          </p>
-
-          <h2>
-            Belanja mudah,
-            <br />
-            <em>untung lebih.</em>
-          </h2>
-
-          <p>
-            Kami membantu rumah tangga,
-            pemilik toko, dan pelaku usaha
-            mendapatkan perabot berkualitas
-            dengan harga yang jelas.
-          </p>
-
-          <div className="benefit-list">
-            <div>
-              <Truck size={21} />
-
-              <span>
-                <strong>
-                  Pengiriman dari Kupang
-                </strong>
-
-                <small>
-                  Stok aman dan siap
-                  dikirim.
-                </small>
-              </span>
-            </div>
-
-            <div>
-              <Package size={21} />
-
-              <span>
-                <strong>
-                  Harga bertingkat
-                </strong>
-
-                <small>
-                  Ecer, grosir, sampai
-                  super grosir.
-                </small>
-              </span>
-            </div>
-
-            <div>
-              <ShieldCheck
-                size={21}
-              />
-
-              <span>
-                <strong>
-                  Produk pilihan
-                </strong>
-
-                <small>
-                  Cocok untuk rumah dan
-                  usaha.
-                </small>
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ===================================================
-          CLOSING
-      =================================================== */}
-
-      <section className="closing">
-        <div className="shell closing-inner">
-          <p className="eyebrow">
-            Mulai belanja hari ini
-          </p>
-
-          <h2>
-            Harga murah untuk
-            <br />
-            <em>
-              semua kebutuhan.
-            </em>
-          </h2>
-
-          <button
-            className="primary-btn light"
-            onClick={whatsapp}
-          >
-            Konsultasi stok sekarang{" "}
-            <MessageCircle size={18} />
-          </button>
-        </div>
-      </section>
-
-      {/* ===================================================
-          FOOTER
-      =================================================== */}
-
-      <footer className="footer">
+      <footer className="footer" id="kontak">
         <div className="footer-inner shell">
           <div className="footer-col-brand">
-            <a
-              className="footer-brand"
-              href="#top"
-            >
-              <span>SUPER</span>{" "}
-              MURAH
-              <span className="brand-dot">
-                .
-              </span>
-
-              <small>
-                KUPANG
-              </small>
-            </a>
-
-            <p className="footer-description">
-              Perabot lengkap, harga super
-              murah.
-            </p>
+            <a className="footer-brand" href="#/home" onClick={(event) => { event.preventDefault(); navigatePublic("home"); }}>SUPER MURAH KUPANG</a>
+            <p className="footer-description">Perlengkapan rumah & usaha.</p>
           </div>
 
           <div className="footer-col">
             <span className="footer-label">
-              Alamat Toko
+              Alamat Toko Resmi
             </span>
 
-            <p className="footer-text">
-              Jln. Trans-Timor, Km. 10,
-              Oesapa, Kupang
-            </p>
+            <p className="footer-text">{marketingSettings.storeAddress || "Jln. Timor Raya, Km. 10, Oesapa, Kupang, NTT"}</p>
+            {marketingSettings.storeHours && <p className="footer-hours">{marketingSettings.storeHours}</p>}
+            <a className="footer-map-link" href={marketingSettings.storeMapsUrl || "https://maps.google.com/?q=Oesapa+Kupang"} target="_blank" rel="noreferrer">Petunjuk arah <ArrowRight size={14} /></a>
           </div>
 
           <div className="footer-col">
             <span className="footer-label">
-              WhatsApp
+              WhatsApp Resmi
             </span>
 
             <a
               className="footer-whatsapp"
-              href="https://wa.me/6285755463065"
+              href={`https://wa.me/${normalizeWhatsAppPhone(marketingSettings.storePhone)}`}
               target="_blank"
               rel="noreferrer"
             >
-              085755463065
+              {marketingSettings.storePhone || "085755463065"}
             </a>
           </div>
 
@@ -4320,10 +3837,12 @@ function App() {
           </div>
 
           <small className="footer-copyright">
-            © 2024 SUPER MURAH KUPANG
+            © {new Date().getFullYear()} SUPER MURAH KUPANG
           </small>
         </div>
       </footer>
+
+      </div>
 
       {/* ===================================================
           PRODUCT DETAIL MODAL
@@ -4514,7 +4033,7 @@ function App() {
 
       {adminOpen && (
         <div
-          className="modal-backdrop"
+          className={`modal-backdrop ${isAdmin ? "admin-backdrop" : ""}`}
           onClick={() =>
             !isAdmin &&
             setAdminOpen(false)
@@ -4524,7 +4043,7 @@ function App() {
             className={`admin-modal ${
               isAdmin
                 ? "dashboard-modal"
-                : ""
+                : "signin-modal"
             }`}
             onClick={(e) =>
               e.stopPropagation()
@@ -4535,93 +4054,7 @@ function App() {
                  LOGIN
               =========================================== */
 
-              <form
-                onSubmit={
-                  submitLogin
-                }
-                className="login-panel"
-              >
-                <button
-                  type="button"
-                  className="close-modal"
-                  onClick={() =>
-                    setAdminOpen(
-                      false,
-                    )
-                  }
-                >
-                  <X />
-                </button>
-
-                <div className="admin-mark">
-                  <LogIn />
-                </div>
-
-                <p className="eyebrow">
-                  Area pengelola
-                </p>
-
-                <h2>
-                  Login{" "}
-                  <em>admin.</em>
-                </h2>
-
-                <label>
-                  Email admin
-
-                  <input
-                    name="email"
-                    type="email"
-                    value={
-                      login.email
-                    }
-                    onChange={
-                      updateLogin
-                    }
-                    required
-                  />
-                </label>
-
-                <label>
-                  Password
-
-                  <input
-                    name="password"
-                    type="password"
-                    value={
-                      login.password
-                    }
-                    onChange={
-                      updateLogin
-                    }
-                    required
-                  />
-                </label>
-
-                {loginError && (
-                  <div className="login-error">
-                    {loginError}
-                  </div>
-                )}
-
-                <button
-                  className="primary-btn login-button"
-                  disabled={
-                    loginLoading ||
-                    checkingAuth
-                  }
-                >
-                  {loginLoading
-                    ? "Memeriksa..."
-                    : "Masuk ke dashboard"}
-
-                  {!loginLoading && (
-                    <ArrowRight
-                      size={17}
-                    />
-                  )}
-                </button>
-              </form>
+              <AdminLoginPanel login={login} loading={loginLoading} checking={checkingAuth} error={loginError} onChange={updateLogin} onSubmit={submitLogin} onClose={() => { setAdminOpen(false); setLoginError(""); setLogin(current => ({ ...current, password: "" })); }} />
             ) : (
               /* ===========================================
                  DASHBOARD
@@ -4632,6 +4065,24 @@ function App() {
                   <p className="sidebar-label">
                     Menu admin
                   </p>
+
+                  <button
+                    className={
+                      adminSection === "overview"
+                        ? "active"
+                        : ""
+                    }
+                    onClick={() =>
+                      setAdminSection(
+                        "overview",
+                      )
+                    }
+                  >
+                    <BarChart3
+                      size={17}
+                    />
+                    Ringkasan
+                  </button>
 
                   <button
                     className={
@@ -4646,7 +4097,7 @@ function App() {
                       )
                     }
                   >
-                    <LayoutDashboard
+                    <Package
                       size={17}
                     />
                     Katalog produk
@@ -4654,21 +4105,38 @@ function App() {
 
                   <button
                     className={
-                      adminSection ===
-                      "promotion"
+                      adminSection === "orders"
                         ? "active"
                         : ""
                     }
-                    onClick={() =>
-                      setAdminSection(
-                        "promotion",
-                      )
-                    }
+                    onClick={() => setAdminSection("orders")}
                   >
-                    <Megaphone
-                      size={17}
-                    />
-                    Halaman promosi
+                    <Receipt size={17} />
+                    Pesanan toko
+                  </button>
+
+                  <button
+                    className={
+                      adminSection === "customers"
+                        ? "active"
+                        : ""
+                    }
+                    onClick={() => setAdminSection("customers")}
+                  >
+                    <Users size={17} />
+                    Master pelanggan
+                  </button>
+
+                  <button
+                    className={
+                      adminSection === "marketing"
+                        ? "active"
+                        : ""
+                    }
+                    onClick={() => setAdminSection("marketing")}
+                  >
+                    <Sparkles size={17} />
+                    Pusat marketing
                   </button>
 
                   <button
@@ -4690,15 +4158,23 @@ function App() {
 
                   <button
                     className={
-                      adminSection === "orders"
+                      adminSection ===
+                      "promotion"
                         ? "active"
                         : ""
                     }
-                    onClick={() => setAdminSection("orders")}
+                    onClick={() =>
+                      setAdminSection(
+                        "promotion",
+                      )
+                    }
                   >
-                    <Receipt size={17} />
-                    Pesanan toko
+                    <Megaphone
+                      size={17}
+                    />
+                    Banner promosi
                   </button>
+
                 </aside>
 
                 <div className="dashboard-content">
@@ -4709,10 +4185,26 @@ function App() {
                       </p>
 
                       <h2>
-                        {adminSection === "orders" ? (
-                          <>Catat <em>pesanan.</em></>
-                        ) : (
+                        {adminSection === "overview" && (
+                          <>Ringkasan <em>eksekutif.</em></>
+                        )}
+                        {adminSection === "catalog" && (
                           <>Kelola <em>katalog.</em></>
+                        )}
+                        {adminSection === "orders" && (
+                          <>Catat <em>pesanan.</em></>
+                        )}
+                        {adminSection === "customers" && (
+                          <>Master <em>pelanggan.</em></>
+                        )}
+                        {adminSection === "marketing" && (
+                          <>Pusat <em>marketing.</em></>
+                        )}
+                        {adminSection === "categories" && (
+                          <>Kelola <em>kategori.</em></>
+                        )}
+                        {adminSection === "promotion" && (
+                          <>Banner <em>promosi.</em></>
                         )}
                       </h2>
                     </div>
@@ -4721,21 +4213,20 @@ function App() {
                       {adminSection ===
                         "catalog" && (
                         <>
-                          <label className="import-btn">
-                            <input
-                              type="file"
-                              accept=".xlsx,.xls,.csv"
-                              onChange={
-                                importExcel
-                              }
-                            />
-
+                          <button
+                            type="button"
+                            className="import-btn"
+                            onClick={() =>
+                              setExcelModalOpen(
+                                true,
+                              )
+                            }
+                          >
                             <Package
                               size={16}
                             />
-
                             Import Excel
-                          </label>
+                          </button>
 
                           <button
                             className="secondary-btn"
@@ -4775,6 +4266,58 @@ function App() {
                       </button>
                     </div>
                   </div>
+
+                  {/* =====================================
+                      ADMIN OVERVIEW
+                  ===================================== */}
+
+                  {adminSection === "overview" && (
+                    <AdminOverviewTab
+                      orders={orders}
+                      products={products}
+                      onNavigateToTab={(tab) => setAdminSection(tab)}
+                      onOpenProductEditor={() => openEditor()}
+                      onOpenExcelImport={() => setExcelModalOpen(true)}
+                      onNewOrder={() => setAdminSection("orders")}
+                      onOpenMarketing={() => setAdminSection("marketing")}
+                    />
+                  )}
+
+                  {/* =====================================
+                      ADMIN CUSTOMERS
+                  ===================================== */}
+
+                  {adminSection === "customers" && (
+                    <AdminCustomersTab
+                      customers={customers}
+                      orders={orders}
+                      onOpenNewCustomer={() => { setAdminSection("orders"); setNewCustomerOpen(true); }}
+                      onEditCustomer={(c) => openCustomerEditor(c)}
+                      onViewOrderReceipt={(ord) => setSelectedReceipt(ord)}
+                    />
+                  )}
+
+                  {/* =====================================
+                      ADMIN MARKETING
+                  ===================================== */}
+
+                  {adminSection === "marketing" && (
+                    <div className="marketing-workspace"><section className="content-workspace-section"><h3>Artikel website</h3><p>Artikel yang diterbitkan tampil di Home dan halaman Artikel.</p><AdminContentTab onlyKind="article" items={content.items} error={content.error} loading={content.loading} onReload={content.reload} onSave={content.save} onRemove={content.remove} onUpload={uploadContentImage} onImportLocal={content.importLocal} /></section>
+                    <AdminMarketingTab
+                      settings={marketingSettings}
+                      onSaveSettings={(s) => {
+                        setMarketingSettings(s);
+                        saveMarketingSettings(s);
+                      }}
+                      promotions={promotions}
+                      uploadPromotionImage={uploadPromotionImage}
+                      removePromotionImage={removePromotionImage}
+                      uploadingPromotion={uploadingPromotion}
+                      orders={orders}
+                      customers={customers}
+                      products={products}
+                    /></div>
+                  )}
 
                   {/* =====================================
                       ADMIN CATALOG
@@ -5055,6 +4598,7 @@ function App() {
                                       type="button"
                                       key={product.id}
                                       onClick={() => {
+                                        setOrderPriceMode("system");
                                         setOrderProductId(String(product.id));
                                         setOrderProductSearch(product.name);
                                       }}
@@ -5077,7 +4621,9 @@ function App() {
                             </label>
                             <label>
                               Harga satuan
-                              <input value={orderPrice ? formatRupiah(priceNumber(orderPrice)) : ""} onChange={(e) => setOrderPrice(e.target.value)} placeholder="Rp0" />
+                              <input aria-label="Harga satuan" inputMode="numeric" value={orderPrice ? formatRupiah(priceNumber(orderPrice)) : ""} onChange={(e) => { setOrderPriceMode("manual"); setOrderPrice(e.target.value); }} placeholder="Rp0" />
+                              <span className="order-price-mode">{orderPriceMode === "manual" ? "Harga manual — tidak berubah saat QTY diganti." : "Harga sistem — mengikuti jumlah pembelian."}</span>
+                              {orderPriceMode === "manual" && <button className="order-system-price" type="button" disabled={!selectedOrderProduct} onClick={() => setOrderPriceMode("system")}>Gunakan harga sistem</button>}
                             </label>
                           </div>
 
@@ -5148,280 +4694,13 @@ function App() {
                       PROMOTION
                   ===================================== */}
 
-                  {adminSection ===
-                    "promotion" && (
-                    <div className="admin-settings promotion-settings">
-                      <div className="settings-copy">
-                        <strong>
-                          Gambar utama
-                        </strong>
-
-                        <small>
-                          Hero halaman
-                          depan.
-                        </small>
-                      </div>
-
-                      <label className="settings-upload">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(
-                            e,
-                          ) =>
-                            uploadPromotionImage(
-                              1,
-                              e,
-                            )
-                          }
-                        />
-
-                        {heroPromotion ? (
-                          <img
-                            src={
-                              heroPromotion
-                            }
-                            alt="Hero"
-                          />
-                        ) : (
-                          <ImagePlus
-                            size={18}
-                          />
-                        )}
-
-                        <span>
-                          {uploadingPromotion ===
-                          1
-                            ? "Upload..."
-                            : "Ganti gambar"}
-                        </span>
-                      </label>
-
-                      {heroPromotion && (
-                        <button
-                          className="remove-logo"
-                          onClick={() =>
-                            removePromotionImage(
-                              1,
-                            )
-                          }
-                        >
-                          Hapus
-                        </button>
-                      )}
-
-                      <div
-                        className="settings-copy"
-                        style={{
-                          marginTop:
-                            "30px",
-                        }}
-                      >
-                        <strong>
-                          Gambar bawah
-                        </strong>
-
-                        <small>
-                          Foto bawah.
-                        </small>
-                      </div>
-
-                      <label className="settings-upload">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(
-                            e,
-                          ) =>
-                            uploadPromotionImage(
-                              2,
-                              e,
-                            )
-                          }
-                        />
-
-                        {lowerPromotion ? (
-                          <img
-                            src={
-                              lowerPromotion
-                            }
-                            alt="Bawah"
-                          />
-                        ) : (
-                          <ImagePlus
-                            size={18}
-                          />
-                        )}
-
-                        <span>
-                          {uploadingPromotion ===
-                          2
-                            ? "Upload..."
-                            : "Ganti gambar"}
-                        </span>
-                      </label>
-
-                      {lowerPromotion && (
-                        <button
-                          className="remove-logo"
-                          onClick={() =>
-                            removePromotionImage(
-                              2,
-                            )
-                          }
-                        >
-                          Hapus
-                        </button>
-                      )}
-                    </div>
-                  )}
+                  {adminSection === "promotion" && <div className="promotion-workspace"><section className="banner-editor"><h3>Banner utama Home</h3><p>Gambar lebar yang tampil paling atas di halaman Home.</p><div className="banner-image-preview">{heroPromotion ? <img src={heroPromotion} alt="Pratinjau banner utama" /> : <span>Belum ada gambar banner</span>}</div><div className="banner-upload-actions"><label className="upload-action"><input type="file" accept="image/*" disabled={uploadingPromotion !== null} onChange={event => uploadPromotionImage(1, event)} /><ImagePlus size={18} />{uploadingPromotion === 1 ? "Mengunggah..." : "Pilih gambar banner"}</label>{heroPromotion && <button className="delete-btn" disabled={uploadingPromotion !== null} onClick={() => removePromotionImage(1)}>Hapus banner</button>}</div></section><section className="content-workspace-section"><h3>Promo website</h3><p>Promo yang diterbitkan tampil di Home dan halaman Promo. Atur gambar, rincian, dan periode tampil di sini.</p><AdminContentTab onlyKind="promo" items={content.items} error={content.error} loading={content.loading} onReload={content.reload} onSave={content.save} onRemove={content.remove} onUpload={uploadContentImage} onImportLocal={content.importLocal} /></section></div>}
 
                   {/* =====================================
                       CATEGORIES
                   ===================================== */}
 
-                  {adminSection ===
-                    "categories" && (
-                    <div className="category-manager">
-                      <form
-                        onSubmit={
-                          addCategory
-                        }
-                      >
-                        <input
-                          value={
-                            categoryName
-                          }
-                          onChange={(
-                            e,
-                          ) =>
-                            setCategoryName(
-                              e.target
-                                .value,
-                            )
-                          }
-                          placeholder="Nama kategori baru"
-                          disabled={
-                            savingCategory
-                          }
-                        />
-
-                        <button
-                          className="secondary-btn"
-                          disabled={
-                            savingCategory
-                          }
-                        >
-                          <Plus
-                            size={15}
-                          />
-
-                          Tambah
-                        </button>
-                      </form>
-
-                      <div className="category-editor-grid">
-                        {categories.map(
-                          (
-                            category,
-                          ) => (
-                            <div
-                              className="category-editor-card"
-                              key={
-                                category.id
-                              }
-                            >
-                              <img
-                                src={
-                                  category.image ||
-                                  getDefaultCategoryImage(
-                                    category.name,
-                                  )
-                                }
-                                alt=""
-                              />
-
-                              <strong>
-                                {
-                                  category.name
-                                }
-                              </strong>
-
-                              <div className="category-editor-actions">
-                                <label className="edit-image-btn">
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    onChange={(
-                                      e,
-                                    ) =>
-                                      uploadCategoryImage(
-                                        category,
-                                        e,
-                                      )
-                                    }
-                                    disabled={
-                                      uploadingCategoryImage ===
-                                      category.id
-                                    }
-                                  />
-
-                                  <ImagePlus
-                                    size={
-                                      14
-                                    }
-                                  />
-
-                                  Ganti
-                                </label>
-
-                                <button
-                                  type="button"
-                                  className="remove-image-btn"
-                                  onClick={() =>
-                                    removeCategoryImage(
-                                      category,
-                                    )
-                                  }
-                                >
-                                  Hapus Gbr
-                                </button>
-
-                                <button
-                                  type="button"
-                                  className="delete-category-btn"
-                                  onClick={() =>
-                                    removeCategory(
-                                      category,
-                                    )
-                                  }
-                                  disabled={products.some(
-                                    (
-                                      p,
-                                    ) =>
-                                      p.category
-                                        .trim()
-                                        .toLowerCase() ===
-                                      category.name
-                                        .trim()
-                                        .toLowerCase(),
-                                  )}
-                                >
-                                  <X
-                                    size={
-                                      14
-                                    }
-                                  />
-
-                                  Hapus
-                                </button>
-                              </div>
-                            </div>
-                          ),
-                        )}
-                      </div>
-                    </div>
-                  )}
+                  {adminSection === "categories" && <AdminCategoriesTab categories={categories} products={products} name={categoryName} saving={savingCategory} uploadingId={uploadingCategoryImage} onNameChange={setCategoryName} onAdd={addCategory} onUpload={uploadCategoryImage} onRemoveImage={removeCategoryImage} onRemove={removeCategory} fallbackImage={getDefaultCategoryImage} />}
                 </div>
               </div>
             )}
@@ -5943,7 +5222,7 @@ function App() {
                 </label>
 
                 <label>
-                  Label
+                  Label / Badge Promosi
 
                   <input
                     value={
@@ -5965,7 +5244,31 @@ function App() {
                         }),
                       )
                     }
+                    placeholder="Contoh: Best Seller, Produk Pilihan, Promo"
                   />
+
+                  <div className="badge-chips">
+                    {["Best Seller", "Produk Pilihan", "Promo", "Super Grosir"].map((badgeText) => (
+                      <button
+                        type="button"
+                        key={badgeText}
+                        className={`badge-chip ${form.badge === badgeText ? "active" : ""}`}
+                        onClick={() => setForm((c) => ({ ...c, badge: badgeText }))}
+                      >
+                        + {badgeText}
+                      </button>
+                    ))}
+                    {form.badge && (
+                      <button
+                        type="button"
+                        className="badge-chip"
+                        style={{ color: "#dc2626" }}
+                        onClick={() => setForm((c) => ({ ...c, badge: "" }))}
+                      >
+                        ✕ Hapus Label
+                      </button>
+                    )}
+                  </div>
                 </label>
 
                 <label className="description-field">
@@ -5995,39 +5298,7 @@ function App() {
                 </label>
               </div>
 
-              <label className="image-upload">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={
-                    uploadProductImage
-                  }
-                  disabled={
-                    uploadingProductImage
-                  }
-                />
-
-                <span>
-                  <ImagePlus
-                    size={22}
-                  />
-
-                  {uploadingProductImage
-                    ? "Mengupload..."
-                    : form.image
-                      ? "Ganti gambar"
-                      : "Upload gambar"}
-                </span>
-
-                {form.image && (
-                  <img
-                    src={
-                      form.image
-                    }
-                    alt="Preview"
-                  />
-                )}
-              </label>
+              <section className="product-image-editor" aria-label="Gambar produk"><div className="product-upload-heading"><div><h3>Gambar produk</h3><p>Pilih gambar untuk mengganti pratinjau di bawah.</p></div><label className={`upload-action ${uploadingProductImage ? "uploading" : ""}`}><input aria-label="Pilih gambar produk" type="file" accept="image/*" onChange={uploadProductImage} disabled={uploadingProductImage || savingProduct} /><ImagePlus size={18} /><span>{uploadingProductImage ? "Mengunggah..." : form.image ? "Ganti gambar" : "Pilih gambar"}</span></label></div><div className="product-upload-preview" aria-live="polite">{form.image ? <img src={form.image} alt="Pratinjau gambar produk" /> : <div><ImagePlus size={36} /><p>Belum ada gambar produk</p></div>}</div><p className="product-upload-hint">Gambar ditampilkan utuh. Mengganti gambar tidak menghapus produk dari katalog.</p></section>
 
               <button
                 className="primary-btn login-button"
@@ -6064,6 +5335,21 @@ function App() {
             </form>
           </div>
         )}
+
+      {/* ===================================================
+          EXCEL IMPORT MODAL (4-STAGE PIPELINE)
+      =================================================== */}
+
+      <ExcelImportModal
+        isOpen={excelModalOpen}
+        onClose={() => setExcelModalOpen(false)}
+        onSuccess={loadProducts}
+        existingProducts={products}
+        categories={categories}
+        supabase={supabase}
+      />
+
+
     </main>
   );
 }
