@@ -1,3 +1,4 @@
+import { useFluidInteractions } from "./lib/useFluidInteractions";
 import { SalesReportTab } from "./components/SalesReportTab";
 import { ArchivedProductsTab } from "./components/ArchivedProductsTab";
 import { BulkProductActions } from "./components/BulkProductActions";
@@ -472,6 +473,9 @@ function App() {
   });
 
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [deletingCustomerId, setDeletingCustomerId] = useState<string | null>(null);
+  const [customerDeleteError, setCustomerDeleteError] = useState("");
+
   const [customersLoading, setCustomersLoading] = useState(false);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
@@ -678,6 +682,8 @@ function App() {
   /* =======================================================
      LOGIN
   ======================================================= */
+
+  useFluidInteractions(publicView, adminSection, adminOpen);
 
   const submitLogin = async (
     event: FormEvent,
@@ -946,19 +952,16 @@ function App() {
   const loadCustomers = async () => {
     setCustomersLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("customers")
-        .select("id, name, whatsapp, address, notes, created_at, updated_at")
-        .order("name", { ascending: true });
-
-      if (error) {
-        if (!/relation .*customers.* does not exist|could not find the table/i.test(error.message)) {
-          console.error("Gagal memuat customer:", error);
-        }
-        return;
+      const data: any[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data: page, error } = await supabase.from("customers").select("*")
+          .order("name", { ascending: true }).order("id", { ascending: true }).range(from, from + 999);
+        if (error) throw error;
+        data.push(...(page ?? []));
+        if (!page || page.length < 1000) break;
       }
 
-      setCustomers((data ?? []).map((customer: any) => ({
+      setCustomers((data ?? []).filter((customer: any) => customer.is_deleted !== true).map((customer: any) => ({
         id: String(customer.id),
         name: String(customer.name ?? "").trim(),
         whatsapp: String(customer.whatsapp ?? "").trim(),
@@ -1540,6 +1543,25 @@ function App() {
     setCustomerSearch(customer.name);
     setNewCustomer({ name: "", whatsapp: "", address: "", notes: "" });
     setNewCustomerOpen(false);
+  };
+
+  const deleteCustomer = async (customer: Customer) => {
+    if (!isAdmin || deletingCustomerId) return;
+    if (!window.confirm(`Hapus ${customer.name} dari daftar toko aktif? Riwayat pesanan, nota, dan laporan tetap tersimpan.`)) return;
+    setDeletingCustomerId(customer.id); setCustomerDeleteError("");
+    try {
+      const { error } = await supabase.from("customers").update({ is_deleted: true })
+        .eq("id", customer.id).select("id").single();
+      if (error) throw error;
+      setCustomers(current => current.filter(item => item.id !== customer.id));
+      if (editingCustomer?.id === customer.id) setEditingCustomer(null);
+      if (selectedCustomerId === customer.id && !editingOrderId) {
+        setSelectedCustomerId(""); setCustomerSearch(""); setOrderStoreName("");
+      }
+    } catch (error) {
+      console.error("Hapus toko gagal:", error);
+      setCustomerDeleteError("Toko belum berhasil dihapus. Pastikan SQL-HAPUS-TOKO.sql sudah dijalankan, lalu coba lagi.");
+    } finally { setDeletingCustomerId(null); }
   };
 
   const openCustomerEditor = (customer: Customer) => {
@@ -4281,6 +4303,9 @@ function App() {
                     <AdminCustomersTab
                       customers={customers}
                       orders={orders}
+                      deletingId={deletingCustomerId}
+                      deleteError={customerDeleteError}
+                      onDeleteCustomer={deleteCustomer}
                       onOpenNewCustomer={() => { setAdminSection("orders"); setNewCustomerOpen(true); }}
                       onEditCustomer={(c) => openCustomerEditor(c)}
                       onViewOrderReceipt={(ord) => setSelectedReceipt(ord)}

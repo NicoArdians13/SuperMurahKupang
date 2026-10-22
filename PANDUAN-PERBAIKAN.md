@@ -1,3 +1,31 @@
+# Hapus toko dan animasi interaksi
+
+## Pemasangan
+
+Gunakan kode dari versi ini dengan `.env` milikmu. Jalankan `SQL-HAPUS-TOKO.sql` di SQL Editor Supabase yang sama. SQL hanya menambah kolom `customers.is_deleted` dan indeks. Tidak mengubah bucket, policy lama, relasi pesanan, atau data produksi selama pengerjaan.
+
+File berubah: `src/App.tsx`, `src/components/AdminCustomersTab.tsx`, `src/styles.css`. File baru: `src/lib/useFluidInteractions.ts` dan `SQL-HAPUS-TOKO.sql`.
+
+## Hapus toko
+
+- Buka Admin → Master pelanggan, klik Hapus pada toko yang dipilih, lalu konfirmasi.
+- Penghapusan mengeluarkan toko dari daftar aktif dan pencarian toko pada pesanan baru. Catatan database tetap tersimpan (`is_deleted = true`), sehingga ID pelanggan pada pesanan lama tetap utuh.
+- Nota, laporan, nilai belanja, serta isi pesanan lama tidak ditimpa. Toko yang sudah mempunyai pesanan juga bisa dikeluarkan dari daftar aktif dengan aman.
+- Jika penyimpanan gagal atau ditolak RLS, toko tetap tampil dengan pesan kesalahan. Menggunakan izin UPDATE admin yang sebelumnya dipakai Edit toko.
+- Jika menambahkan toko baru dengan nama sama, toko baru mempunyai ID berbeda. Riwayat yang sudah punya ID tidak otomatis dipindahkan hanya karena nama sama.
+- Tidak ada DELETE fisik customer, pesanan, produk maupun file gambar.
+
+## Animasi
+
+- Tombol dan tautan di depan/admin mempunyai efek tekan ringan, serta riak lembut pada lokasi klik.
+- Isi halaman mendapat transisi masuk singkat saat berpindah menu. Komponen formulir tidak dibongkar ulang demi animasi, sehingga isian tetap dipertahankan.
+- Efek tidak menangkap klik atau mengubah proses penyimpanan. Tombol nonaktif tidak diberi riak; efek dibersihkan setelah selesai atau saat scroll.
+- Mengikuti pengaturan perangkat `prefers-reduced-motion`: efek baru dimatikan ketika pengguna memilih kurangi gerakan. Fokus keyboard tetap terlihat.
+
+Validasi: build berhasil; pengujian browser dengan API simulasi pada lebar 1440, 768, 390 dan 320 px mencakup batal konfirmasi, kegagalan simpan, penghapusan toko baru/yang punya pesanan, muat ulang, pencarian, nota lama, nilai laporan tetap, pembersihan riak, reduced motion dan keyboard. Tidak ditemukan exception JavaScript dalam skenario tersebut. SQL belum dijalankan pada Supabase asli.
+
+---
+
 # Laporan penjualan dan Arsip barang
 
 ## Pemasangan

@@ -24,6 +24,9 @@ import { openWhatsApp } from "../lib/whatsapp";
 interface AdminCustomersTabProps {
   customers: Customer[];
   orders: StoreOrder[];
+  deletingId: string | null;
+  deleteError: string;
+  onDeleteCustomer: (customer: Customer) => Promise<void>;
   onOpenNewCustomer: () => void;
   onEditCustomer: (customer: Customer) => void;
   onViewOrderReceipt: (order: StoreOrder) => void;
@@ -33,6 +36,9 @@ export function AdminCustomersTab({
   customers,
   orders,
   onOpenNewCustomer,
+  deletingId,
+  deleteError,
+  onDeleteCustomer,
   onEditCustomer,
   onViewOrderReceipt,
 }: AdminCustomersTabProps) {
@@ -68,7 +74,7 @@ export function AdminCustomersTab({
       const cOrders = orders.filter(
         (o) =>
           o.customerId === c.id ||
-          (o.storeName && o.storeName.toLowerCase() === c.name.toLowerCase()),
+          (!o.customerId && o.storeName && o.storeName.trim().toLowerCase() === c.name.trim().toLowerCase()),
       );
 
       const totalSpent = cOrders.reduce(
@@ -172,6 +178,8 @@ export function AdminCustomersTab({
 
   return (
     <div style={{ display: "grid", gap: "20px" }}>
+      {deleteError && <p role="alert">{deleteError}</p>}
+      <p>Hapus toko mengeluarkannya dari daftar aktif. Riwayat pesanan dan nota tetap tersimpan.</p>
       {/* 1. TOP KPI SUMMARY CARDS */}
       <div
         style={{
@@ -618,6 +626,7 @@ export function AdminCustomersTab({
                           >
                             <Pencil size={12} /> Edit
                           </button>
+                          <button type="button" className="delete-btn" aria-label={`Hapus toko ${c.name}`} disabled={deletingId !== null} onClick={() => onDeleteCustomer(c)} style={{ padding: "5px 8px", fontSize: "11px" }}>{deletingId === c.id ? "Menghapus..." : "Hapus"}</button>
                         </div>
                       </td>
                     </tr>
