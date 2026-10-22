@@ -15,9 +15,9 @@ export const DEFAULT_MARKETING_SETTINGS: MarketingSettings = {
     "Kami siap menjadi mitra pasokan perabot Anda di Kupang dan sekitarnya. Dapatkan penawaran harga grosir khusus, ketersediaan stok konsisten, dan kemudahan pengambilan maupun pengantaran.",
   storeName: "SUPER MURAH KUPANG",
   storeAddress: "Jln. Timor Raya, Km. 10, Oesapa, Kupang, NTT",
-  storeHours: "Senin – Sabtu: 08.00 – 18.00 WITA (Minggu Libur)",
+  storeHours: "Senin – Minggu: 09.00 – 18.00 WITA",
   storePhone: "085755463065",
-  storeMapsUrl: "https://maps.google.com/?q=Oesapa+Kupang+Timor+Raya",
+  storeMapsUrl: "https://maps.app.goo.gl/i3sq24MPpnEjk3ZTA",
   whatsappCtaCatalog:
     "Halo SUPER MURAH KUPANG, saya ingin tanya info katalog dan ketersediaan stok produk.",
   whatsappCtaWholesale:
