@@ -1,3 +1,6 @@
+import { SalesReportTab } from "./components/SalesReportTab";
+import { ArchivedProductsTab } from "./components/ArchivedProductsTab";
+import { BulkProductActions } from "./components/BulkProductActions";
 import { useBrands } from "./lib/brands";
 import { AdminBrandsTab } from "./components/AdminBrandsTab";
 import { AdminLoginPanel } from "./components/AdminLoginPanel";
@@ -92,6 +95,7 @@ const normalizeOrderItem = (item: any): OrderItem => ({
 });
 
 const normalizeStoreOrder = (row: any): StoreOrder => ({
+  completedAt: row?.completed_at ?? row?.completedAt ?? null,
   id: String(row?.order_number ?? row?.id ?? `TRX-${Date.now().toString(36).toUpperCase()}`),
   databaseId: row?.id ? String(row.id) : undefined,
   storeName: String(row?.store_name ?? row?.customer?.name ?? row?.storeName ?? "").trim(),
@@ -177,6 +181,7 @@ const localDateString = (date = new Date()) => {
  *   superWholesale
  */
 const normalizeProduct = (product: any): Product => ({
+  is_archived: product?.is_archived === true,
   brand_id: product?.brand_id == null ? null : Number(product.brand_id),
   id: Number.isFinite(Number(product?.id))
     ? Number(product.id)
@@ -425,6 +430,13 @@ function App() {
 
   const [editorOpen, setEditorOpen] =
     useState(false);
+
+  const [archiveBusy, setArchiveBusy] = useState<number | null>(null);
+  const [archiveError, setArchiveError] = useState("");
+  const [completionBusy, setCompletionBusy] = useState<string | null>(null);
+
+  const [bulkSelected, setBulkSelected] = useState<number[]>([]);
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   const [brandSaving, setBrandSaving] = useState<Record<number, boolean>>({});
   const [brandSaveMessage, setBrandSaveMessage] = useState<Record<number, string>>({});
@@ -966,26 +978,27 @@ function App() {
     setOrdersLoading(true);
     setOrderError("");
     try {
-      const { data, error } = await supabase
-        .from("orders")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        if (!/relation .*orders.* does not exist|could not find the table/i.test(error.message)) {
-          setOrderError(error.message);
-        }
-        return;
+      const data: any[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data: page, error } = await supabase.from("orders").select("*")
+          .order("created_at", { ascending: false }).order("id", { ascending: false }).range(from, from + 999);
+        if (error) throw error;
+        data.push(...(page ?? []));
+        if (!page || page.length < 1000) break;
       }
-
-      const normalized = (data ?? []).map(normalizeStoreOrder);
+      const normalized = data.map(normalizeStoreOrder);
       const itemIds = normalized.map((order) => order.databaseId).filter(Boolean);
       if (itemIds.length) {
-        const { data: itemRows, error: itemError } = await supabase
-          .from("order_items")
-          .select("*")
-          .in("order_id", itemIds);
-        if (itemError) throw itemError;
+        const itemRows: any[] = [];
+        for (let start = 0; start < itemIds.length; start += 100) {
+          for (let from = 0; ; from += 1000) {
+            const { data: page, error } = await supabase.from("order_items").select("*")
+              .in("order_id", itemIds.slice(start, start + 100)).order("id", { ascending: true }).range(from, from + 999);
+            if (error) throw error;
+            itemRows.push(...(page ?? []));
+            if (!page || page.length < 1000) break;
+          }
+        }
         const itemsByOrder = new Map<string, OrderItem[]>();
         (itemRows ?? []).forEach((item: any) => {
           const orderId = String(item.order_id);
@@ -998,7 +1011,8 @@ function App() {
         });
       }
       setOrders(normalized);
-      localStorage.setItem("supermurah_store_orders", JSON.stringify(normalized));
+      try { localStorage.setItem("supermurah_store_orders", JSON.stringify(normalized)); }
+      catch { console.warn("Cache pesanan tidak tersedia; data tetap dimuat dari Supabase."); }
     } catch (error: any) {
       setOrderError(error?.message || "Gagal memuat pesanan.");
     } finally {
@@ -1018,6 +1032,7 @@ function App() {
 
   // Private data is requested after admin verification, including after login.
   useEffect(() => {
+    void loadProducts();
     if (!isAdmin) return;
     void loadCustomers();
     void loadOrders();
@@ -1128,10 +1143,12 @@ function App() {
    * Filter kategori dibuat case-insensitive
    * agar "Dapur" dan "dapur" tidak dianggap berbeda.
    */
+  const activeProducts = useMemo(() => products.filter(product => !product.is_archived), [products]);
+
   const publicCategories = useMemo(() => {
     const result = [...categories];
     const seen = new Set(result.map((category) => category.name.trim().toLowerCase()));
-    for (const product of products) {
+    for (const product of activeProducts) {
       const name = product.category.trim();
       if (name && !seen.has(name.toLowerCase())) {
         seen.add(name.toLowerCase());
@@ -1139,12 +1156,12 @@ function App() {
       }
     }
     return result;
-  }, [categories, products]);
+  }, [categories, activeProducts]);
 
-  const filteredProducts = useMemo(() => products.filter(product =>
+  const filteredProducts = useMemo(() => activeProducts.filter(product =>
     (activeCategory === "Semua" || product.category.trim().toLowerCase() === activeCategory.trim().toLowerCase()) &&
     (activeBrand === "Semua" || String(product.brand_id) === activeBrand)
-  ), [products, activeCategory, activeBrand]);
+  ), [activeProducts, activeCategory, activeBrand]);
   const brandName = (product: Product) => brandData.brands.find(brand => brand.id === product.brand_id)?.name || "";
 
   /*
@@ -1273,32 +1290,32 @@ function App() {
           .toLowerCase();
 
       if (keyword.length < 2) {
-        return products;
+        return activeProducts;
       }
 
-      return products.filter(
+      return activeProducts.filter(
         (product) =>
           `${product.name} ${product.product_code ?? ""} ${product.category} ${product.description ?? ""}`
             .toLowerCase()
             .includes(keyword),
       );
     }, [
-      products,
+      activeProducts,
       adminSearch,
     ]);
 
   const featuredProducts = useMemo(
     () =>
-      products.filter(
+      activeProducts.filter(
         (p) =>
           p.badge?.toLowerCase().includes("pilihan") ||
           p.badge?.toLowerCase().includes("featured"),
       ),
-    [products],
+    [activeProducts],
   );
 
   const bestSellerProducts = useMemo(() => {
-    const tagged = products.filter((p) =>
+    const tagged = activeProducts.filter((p) =>
       p.badge?.toLowerCase().includes("best seller"),
     );
     if (tagged.length > 0) return tagged;
@@ -1312,7 +1329,7 @@ function App() {
       }
     }
 
-    const orderedOnly = products.filter(
+    const orderedOnly = activeProducts.filter(
       (p) => (map.get(p.name.trim().toLowerCase()) || 0) > 0,
     );
 
@@ -1326,8 +1343,8 @@ function App() {
         .slice(0, 6);
     }
 
-    return products.slice(0, 4);
-  }, [products, orders]);
+    return activeProducts.slice(0, 4);
+  }, [activeProducts, orders]);
 
   /* =======================================================
      RESET PUBLIC PAGE
@@ -1359,17 +1376,12 @@ function App() {
   ======================================================= */
 
   const cartItems =
-    products.filter(
+    activeProducts.filter(
       (product) =>
         (cart[product.id] || 0) > 0,
     );
 
-  const totalQuantity =
-    Object.values(cart).reduce(
-      (total, quantity) =>
-        total + quantity,
-      0,
-    );
+  const totalQuantity = cartItems.reduce((sum, product) => sum + (cart[product.id] || 0), 0);
 
   const getPrice = (
     product: Product,
@@ -1392,7 +1404,7 @@ function App() {
     );
   };
 
-  const selectedOrderProduct = products.find(
+  const selectedOrderProduct = activeProducts.find(
     (product) => String(product.id) === orderProductId,
   );
 
@@ -1400,10 +1412,10 @@ function App() {
     const keyword = orderProductSearch.trim().toLowerCase();
     if (keyword.length < 2) return [];
 
-    return products
+    return activeProducts
       .filter((product) => `${product.name} ${product.product_code ?? ""} ${product.category}`.toLowerCase().includes(keyword))
       .slice(0, 8);
-  }, [products, orderProductSearch]);
+  }, [activeProducts, orderProductSearch]);
 
   useEffect(() => {
     if (!selectedOrderProduct) return;
@@ -1494,7 +1506,8 @@ function App() {
 
   const saveOrders = (nextOrders: StoreOrder[]) => {
     setOrders(nextOrders);
-    localStorage.setItem("supermurah_store_orders", JSON.stringify(nextOrders));
+    try { localStorage.setItem("supermurah_store_orders", JSON.stringify(nextOrders)); }
+    catch { console.warn("Cache pesanan tidak tersedia; penyimpanan utama tetap Supabase."); }
   };
 
   const createCustomer = async () => {
@@ -1633,6 +1646,32 @@ function App() {
     if (editingOrderId === order.id) resetOrderForm();
   };
 
+  const setArchived = async (product: Product, archived: boolean) => {
+    if (!isAdmin || archiveBusy !== null) return;
+    if (!window.confirm(`${archived ? "Arsipkan" : "Pulihkan"} ${product.name}?`)) return;
+    setArchiveBusy(product.id); setArchiveError("");
+    try {
+      const { data, error } = await supabase.from("products").update({ is_archived: archived }).eq("id", product.id).select("id,is_archived").single();
+      if (error) throw error;
+      setProducts(current => current.map(item => item.id === product.id ? { ...item, is_archived: data.is_archived } : item));
+      setBulkSelected(current => current.filter(id => id !== product.id));
+      if (archived) { setCart(current => { const next = { ...current }; delete next[product.id]; return next; }); if (selectedProduct?.id === product.id) setSelectedProduct(null); if (editing?.id === product.id) { setEditorOpen(false); setEditing(null); } }
+    } catch (error) { console.error(error); setArchiveError("Gagal menyimpan arsip. Pastikan SQL-LAPORAN-ARSIP.sql sudah dijalankan, lalu coba lagi."); }
+    finally { setArchiveBusy(null); }
+  };
+
+  const toggleOrderCompletion = async (order: StoreOrder) => {
+    if (!isAdmin || completionBusy) return;
+    if (!window.confirm(order.completedAt ? "Buka kembali pesanan? Pesanan akan dikeluarkan dari laporan penjualan." : "Tandai pesanan selesai dan masukkan ke laporan penjualan?")) return;
+    setCompletionBusy(order.id); setOrderError("");
+    try {
+      const { data, error } = await supabase.from("orders").update({ completed_at: order.completedAt ? null : new Date().toISOString() }).eq("order_number", order.id).select("completed_at").single();
+      if (error) throw error;
+      saveOrders(orders.map(item => item.id === order.id ? { ...item, completedAt: data.completed_at } : item));
+    } catch (error) { console.error(error); setOrderError("Status selesai gagal disimpan. Jalankan SQL-LAPORAN-ARSIP.sql dan coba lagi."); }
+    finally { setCompletionBusy(null); }
+  };
+
   const updateOrderStatus = async (order: StoreOrder, deliveryStatus: StoreOrder["deliveryStatus"]) => {
     const { error } = await supabase.from("orders").update({ delivery_status: deliveryStatus }).eq("order_number", order.id);
     if (error) {
@@ -1700,6 +1739,7 @@ function App() {
       customerId: selectedCustomerId || null,
       orderDate,
       items: itemsForSave,
+      completedAt: existingOrder?.completedAt ?? null,
       createdAt: existingOrder?.createdAt || new Date().toISOString(),
       deliveryStatus: existingOrder?.deliveryStatus || "belum_diantar",
       paymentMethod,
@@ -2026,6 +2066,7 @@ function App() {
   ======================================================= */
 
   const addToCart = (product: Product) => {
+    if (product.is_archived || products.find(item => item.id === product.id)?.is_archived) return;
     trackEvent("add_to_cart", {
       productId: product.id,
       productName: product.name,
@@ -2448,75 +2489,6 @@ function App() {
       );
     } finally {
       setSavingProduct(false);
-    }
-  };
-
-  /* =======================================================
-     DELETE PRODUCT
-  ======================================================= */
-
-  const removeProduct = async (
-    product: Product,
-  ) => {
-    const confirmed =
-      window.confirm(
-        `Hapus produk "${product.name}"?`,
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      const {
-        error,
-      } = await supabase
-        .from("products")
-        .delete()
-        .eq("id", product.id);
-
-      if (error) {
-        console.error(
-          "Delete product gagal:",
-          error,
-        );
-
-        alert(
-          `Produk gagal dihapus:\n\n${error.message}`,
-        );
-
-        return;
-      }
-
-      if (product.image) {
-        await removeStorageFileByUrl(
-          "product-images",
-          product.image,
-        );
-      }
-
-      await loadProducts();
-
-      changeCartQuantity(
-        product.id,
-        0,
-      );
-
-      if (
-        editing?.id ===
-        product.id
-      ) {
-        closeEditor();
-      }
-    } catch (error: any) {
-      console.error(
-        "Exception removeProduct:",
-        error,
-      );
-
-      alert(
-        `Terjadi kesalahan:\n\n${error?.message || "Unknown error"}`,
-      );
     }
   };
 
@@ -3380,8 +3352,8 @@ function App() {
         <section className="home-selection shell" aria-label="Produk pilihan">
           <div className="shop-section-heading"><h2>Produk Pilihan</h2><div className="shop-product-tabs">{[["selected", "Produk Pilihan"], ["best", "Penjualan Terbaik"], ["new", "Produk Terbaru"]].map(([value, label]) => <button className={homeSelection === value ? "active" : ""} onClick={() => setHomeSelection(value)} key={value}>{label}</button>)}</div></div>
 
-          {productsLoading ? <p className="empty-catalog">Memuat produk...</p> : productsError ? <div className="empty-catalog"><p>Produk belum berhasil dimuat.</p><button className="secondary-btn" onClick={loadProducts}>Coba lagi</button></div> : <div className="product-grid home-product-grid">{(homeSelection === "new" ? [...products].sort((a,b) => b.id-a.id) : homeSelection === "best" ? bestSellerProducts : featuredProducts.length ? featuredProducts : products).slice(0, 12).map((product) => <article className="product-card" key={product.id}><button className="home-product-photo" onClick={() => setSelectedProduct(product)} aria-label={`Lihat detail ${product.name}`}><img src={product.image || getDefaultCategoryImage(product.category)} alt={product.name} loading="lazy" /></button><div className="product-info"><p className="product-category">{brandName(product) || product.category}</p><h3>{product.name}</h3><p className="product-description">{product.description || "Lihat detail untuk informasi produk."}</p><strong>{formatRupiah(getPrice(product, 1))}</strong><button className="secondary-btn" onClick={() => setSelectedProduct(product)}>Lihat detail <ArrowRight size={15} /></button></div></article>)}</div>}
-          {!productsLoading && !productsError && !products.length && <p className="empty-catalog">Belum ada produk untuk ditampilkan.</p>}
+          {productsLoading ? <p className="empty-catalog">Memuat produk...</p> : productsError ? <div className="empty-catalog"><p>Produk belum berhasil dimuat.</p><button className="secondary-btn" onClick={loadProducts}>Coba lagi</button></div> : <div className="product-grid home-product-grid">{(homeSelection === "new" ? [...activeProducts].sort((a,b) => b.id-a.id) : homeSelection === "best" ? bestSellerProducts : featuredProducts.length ? featuredProducts : activeProducts).slice(0, 12).map((product) => <article className="product-card" key={product.id}><button className="home-product-photo" onClick={() => setSelectedProduct(product)} aria-label={`Lihat detail ${product.name}`}><img src={product.image || getDefaultCategoryImage(product.category)} alt={product.name} loading="lazy" /></button><div className="product-info"><p className="product-category">{brandName(product) || product.category}</p><h3>{product.name}</h3><p className="product-description">{product.description || "Lihat detail untuk informasi produk."}</p><strong>{formatRupiah(getPrice(product, 1))}</strong><button className="secondary-btn" onClick={() => setSelectedProduct(product)}>Lihat detail <ArrowRight size={15} /></button></div></article>)}</div>}
+          {!productsLoading && !productsError && !activeProducts.length && <p className="empty-catalog">Belum ada produk untuk ditampilkan.</p>}
           <button className="article-read all-products-link" onClick={() => navigatePublic("catalog")}>Lihat semua produk <ArrowRight size={16} /></button>
         </section>
         <StorefrontContentSections items={content.items} loading={content.loading} error={content.error} onReload={content.reload} />
@@ -3389,7 +3361,7 @@ function App() {
       {publicView === "articles" && <><div className="content-page-heading shell"><p className="eyebrow">Inspirasi & tips</p><h1>Artikel Super Murah Kupang</h1><p>Temukan inspirasi untuk rumah dan kebutuhan usaha Anda.</p></div><StorefrontContentSections items={content.items} loading={content.loading} error={content.error} onReload={content.reload} articlesOnly /></>}
       {publicView === "promos" && <><div className="content-page-heading shell"><p className="eyebrow">Penawaran toko</p><h1>Promo Super Murah Kupang</h1><p>Lihat penawaran yang sedang berlaku beserta rincian dan syaratnya.</p></div><StorefrontContentSections items={content.items} loading={content.loading} error={content.error} onReload={content.reload} promosOnly /></>}
 
-      {publicView === "brands" && <section className="section shell public-brands"><div className="page-heading"><div><p className="eyebrow">Jelajahi pilihan</p><h1>Merk produk</h1><p>Pilih merk untuk melihat katalog yang sesuai.</p></div></div>{brandData.loading ? <p>Memuat merk...</p> : brandData.error ? <div className="empty-catalog"><p>Daftar merk belum dapat dimuat.</p><button className="secondary-btn" onClick={brandData.reload}>Coba lagi</button></div> : <div className="brand-card-grid">{brandData.brands.map(brand => <button className="public-brand-card" key={brand.id} onClick={() => navigatePublic("catalog", "Semua", "", String(brand.id))}><div className="brand-logo">{brand.image ? <img src={brand.image} alt={brand.name} loading="lazy" /> : <Tags size={38} />}</div><strong>{brand.name}</strong><span>{products.filter(product => product.brand_id === brand.id).length} produk <ArrowRight size={15} /></span></button>)}</div>}{!brandData.loading && !brandData.error && !brandData.brands.length && <p className="empty-catalog">Merk produk belum ditambahkan.</p>}</section>}
+      {publicView === "brands" && <section className="section shell public-brands"><div className="page-heading"><div><p className="eyebrow">Jelajahi pilihan</p><h1>Merk produk</h1><p>Pilih merk untuk melihat katalog yang sesuai.</p></div></div>{brandData.loading ? <p>Memuat merk...</p> : brandData.error ? <div className="empty-catalog"><p>Daftar merk belum dapat dimuat.</p><button className="secondary-btn" onClick={brandData.reload}>Coba lagi</button></div> : <div className="brand-card-grid">{brandData.brands.map(brand => <button className="public-brand-card" key={brand.id} onClick={() => navigatePublic("catalog", "Semua", "", String(brand.id))}><div className="brand-logo">{brand.image ? <img src={brand.image} alt={brand.name} loading="lazy" /> : <Tags size={38} />}</div><strong>{brand.name}</strong><span>{activeProducts.filter(product => product.brand_id === brand.id).length} produk <ArrowRight size={15} /></span></button>)}</div>}{!brandData.loading && !brandData.error && !brandData.brands.length && <p className="empty-catalog">Merk produk belum ditambahkan.</p>}</section>}
 
       {publicView === "categories" && <>
       {/* ===================================================
@@ -3448,7 +3420,7 @@ function App() {
         id="unggulan"
       >
         <div className="shell shop-catalog-layout">
-          <aside className="shop-catalog-sidebar" aria-label="Filter produk"><h2>Filter Produk</h2><h3>Kategori</h3><button className={activeCategory === "Semua" ? "active" : ""} onClick={() => navigatePublic("catalog", "Semua", publicSearch, activeBrand)}>Semua kategori</button>{publicCategories.map(category => <button className={activeCategory === category.name ? "active" : ""} key={category.id} onClick={() => navigatePublic("catalog", category.name, publicSearch, activeBrand)}>{category.name}<span>{products.filter(product => product.category.toLowerCase() === category.name.toLowerCase()).length}</span></button>)}<h3>Merk</h3><label className="brand-filter-label">Filter merk<select aria-label="Filter merk" value={activeBrand} onChange={event => navigatePublic("catalog", activeCategory, publicSearch, event.target.value)} disabled={brandData.loading || Boolean(brandData.error)}><option value="Semua">Semua merk</option>{brandData.brands.map(brand => <option key={brand.id} value={String(brand.id)}>{brand.name}</option>)}</select></label><h3>Harga ecer</h3><label>Minimum<input aria-label="Harga minimum" type="number" min="0" value={minPrice} onChange={e => setMinPrice(e.target.value)} placeholder="Rp min" /></label><label>Maksimum<input aria-label="Harga maksimum" type="number" min="0" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} placeholder="Rp max" /></label><button className="reset-filter" onClick={() => { setMinPrice(""); setMaxPrice(""); setCatalogSort("default"); navigatePublic("catalog"); }}>Hapus filter</button></aside>
+          <aside className="shop-catalog-sidebar" aria-label="Filter produk"><h2>Filter Produk</h2><h3>Kategori</h3><button className={activeCategory === "Semua" ? "active" : ""} onClick={() => navigatePublic("catalog", "Semua", publicSearch, activeBrand)}>Semua kategori</button>{publicCategories.map(category => <button className={activeCategory === category.name ? "active" : ""} key={category.id} onClick={() => navigatePublic("catalog", category.name, publicSearch, activeBrand)}>{category.name}<span>{activeProducts.filter(product => product.category.toLowerCase() === category.name.toLowerCase()).length}</span></button>)}<h3>Merk</h3><label className="brand-filter-label">Filter merk<select aria-label="Filter merk" value={activeBrand} onChange={event => navigatePublic("catalog", activeCategory, publicSearch, event.target.value)} disabled={brandData.loading || Boolean(brandData.error)}><option value="Semua">Semua merk</option>{brandData.brands.map(brand => <option key={brand.id} value={String(brand.id)}>{brand.name}</option>)}</select></label><h3>Harga ecer</h3><label>Minimum<input aria-label="Harga minimum" type="number" min="0" value={minPrice} onChange={e => setMinPrice(e.target.value)} placeholder="Rp min" /></label><label>Maksimum<input aria-label="Harga maksimum" type="number" min="0" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} placeholder="Rp max" /></label><button className="reset-filter" onClick={() => { setMinPrice(""); setMaxPrice(""); setCatalogSort("default"); navigatePublic("catalog"); }}>Hapus filter</button></aside>
           <div className="shop-catalog-main">
           <div className="catalog-titlebar"><div><h1>{activeCategory === "Semua" ? "Semua katalog" : `Katalog ${activeCategory}`}</h1><p>Ditemukan {displayedCatalogProducts.length} produk{activeBrand !== "Semua" ? ` • Merk: ${brandData.brands.find(brand => String(brand.id) === activeBrand)?.name || "Pilihan merk"}` : " untuk Anda"}</p></div><label>Urutkan<select aria-label="Urutan produk" value={catalogSort} onChange={e => setCatalogSort(e.target.value)}><option value="default">Rekomendasi</option><option value="newest">Terbaru</option><option value="price-asc">Harga terendah</option><option value="price-desc">Harga tertinggi</option><option value="name">Nama A–Z</option></select></label></div>
           <label className="public-search catalog-search"><Search size={18} /><input aria-label="Cari di katalog" value={publicSearch} onChange={e => setPublicSearch(e.target.value)} placeholder="Cari nama barang..." /></label>
@@ -3860,7 +3832,7 @@ function App() {
           PRODUCT DETAIL MODAL
       =================================================== */}
 
-      {selectedProduct && (
+      {selectedProduct && !selectedProduct.is_archived && activeProducts.some(product => product.id === selectedProduct.id) && (
         <div
           className="modal-backdrop"
           onClick={() =>
@@ -4187,6 +4159,8 @@ function App() {
                     Banner promosi
                   </button>
 
+                  <button className={adminSection === "reports" ? "active" : ""} onClick={() => { setAdminSection("reports"); void loadOrders(); }}><BarChart3 size={17} />Laporan penjualan</button>
+                  <button className={adminSection === "archive" ? "active" : ""} onClick={() => setAdminSection("archive")}><Tags size={17} />Arsip barang</button>
                   <button className={adminSection === "brands" ? "active" : ""} onClick={() => setAdminSection("brands")}><Tags size={17} />Kelola merk</button>
                 </aside>
 
@@ -4198,6 +4172,8 @@ function App() {
                       </p>
 
                       <h2>
+                        {adminSection === "reports" && <>Laporan penjualan.</>}
+                        {adminSection === "archive" && <>Arsip barang.</>}
                         {adminSection === "brands" && <>Kelola merk.</>}
                         {adminSection === "overview" && (
                           <>Ringkasan <em>eksekutif.</em></>
@@ -4333,6 +4309,9 @@ function App() {
                     /></div>
                   )}
 
+                  {(adminSection === "catalog" || adminSection === "archive") && archiveError && <p role="alert">{archiveError}</p>}
+                  {adminSection === "reports" && <SalesReportTab orders={orders} loading={ordersLoading} error={orderError} onReload={loadOrders} />}
+                  {adminSection === "archive" && <ArchivedProductsTab products={products.filter(product => product.is_archived)} busy={archiveBusy} onRestore={setArchived} />}
                   {/* =====================================
                       ADMIN CATALOG
                   ===================================== */}
@@ -4376,7 +4355,10 @@ function App() {
                         )}
                       </div>
 
-                      <div className="admin-product-list">
+                      <BulkProductActions products={activeProducts} visible={adminFilteredProducts} selected={bulkSelected} onSelect={setBulkSelected} categories={categoryNames} brands={brandData.brands} brandsReady={!brandData.loading && !brandData.error} disabled={!isAdmin || Object.values(brandSaving).some(Boolean)} busy={bulkSaving} onBusy={setBulkSaving} supabase={supabase} onChanged={(ids, patch) => {
+                        setProducts(current => current.map(product => ids.includes(product.id) ? { ...product, ...patch } : product));
+                      }} />
+                      <fieldset className="admin-product-list" disabled={bulkSaving}>
                         {adminFilteredProducts.map(
                           (product) => (
                             <div
@@ -4396,6 +4378,7 @@ function App() {
                               />
 
                               <div>
+                                <label className="product-selection"><input type="checkbox" aria-label={`Pilih ${product.name}`} checked={bulkSelected.includes(product.id)} onChange={event => setBulkSelected(current => event.target.checked ? [...new Set([...current, product.id])] : current.filter(id => id !== product.id))} />Pilih barang</label>
                                 <strong>
                                   {
                                     product.name
@@ -4535,20 +4518,7 @@ function App() {
                                 Edit
                               </button>
 
-                              <button
-                                className="delete-btn"
-                                onClick={() =>
-                                  removeProduct(
-                                    product,
-                                  )
-                                }
-                              >
-                                <X
-                                  size={
-                                    16
-                                  }
-                                />
-                              </button>
+                              <button className="secondary-btn archive-product-btn" disabled={archiveBusy !== null} onClick={() => setArchived(product, true)} aria-label={`Arsipkan ${product.name}`}>{archiveBusy === product.id ? "Menyimpan..." : "Arsipkan"}</button>
                             </div>
                           ),
                         )}
@@ -4559,7 +4529,7 @@ function App() {
                             ditemukan.
                           </p>
                         )}
-                      </div>
+                      </fieldset>
                     </>
                   )}
 
@@ -4725,6 +4695,7 @@ function App() {
                               <select className="order-status" value={order.deliveryStatus || "belum_diantar"} onChange={(event) => updateOrderStatus(order, event.target.value as StoreOrder["deliveryStatus"])}>
                                 <option value="belum_diantar">Belum diantar</option><option value="diantar">Diantar</option><option value="ambil_sendiri">Diambil sendiri</option>
                               </select>
+                              <button className="secondary-btn completion-btn" disabled={Boolean(completionBusy)} onClick={() => toggleOrderCompletion(order)}>{order.completedAt ? "Selesai · Buka kembali" : "Tandai selesai"}</button>
                               <button className="edit-btn" type="button" onClick={() => startEditOrder(order)}><Pencil size={15} /> Edit</button>
                               <button className="edit-btn" type="button" onClick={() => setSelectedReceipt(order)}><Receipt size={15} /> Nota</button>
                               <button className="delete-btn" type="button" onClick={() => deleteOrder(order)}><X size={15} /></button>
@@ -5372,16 +5343,13 @@ function App() {
                 <button
                   type="button"
                   className="delete-product-editor"
-                  onClick={() =>
-                    removeProduct(
-                      editing,
-                    )
-                  }
+                  disabled={archiveBusy !== null || savingProduct}
+                  onClick={() => setArchived(editing, true)}
                 >
-                  Hapus produk dari
-                  katalog
+                  Arsipkan barang
                 </button>
               )}
+              {archiveError && <p role="alert">{archiveError}</p>}
             </form>
           </div>
         )}

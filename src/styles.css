@@ -1871,3 +1871,33 @@ svg { flex-shrink: 0; }
  .admin-product-row .edit-btn { grid-column: 3; grid-row: 1; }
  .admin-product-row .delete-btn { grid-column: 3; grid-row: 2; }
 }
+
+.bulk-product-actions { margin-top: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.bulk-selection { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.bulk-selection button { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; background: #f8fafc; }
+.bulk-fields { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 14px 0; }
+.bulk-fields label { display: grid; gap: 5px; flex: 1 1 180px; min-width: 0; }
+.bulk-fields select { width: 100%; min-width: 0; }
+.bulk-product-actions p { font-size: 13px; }
+fieldset.admin-product-list { padding: 0; border: 0; min-width: 0; }
+.product-selection { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; font-size: 12px; color: var(--muted); }
+.product-selection input { width: 17px; height: 17px; accent-color: #ed7f19; }
+@media(max-width:600px) { .bulk-product-actions { padding: 12px; } .bulk-fields .primary-btn { width: 100%; } }
+
+.report-filters { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.report-filters label { display: grid; gap: 5px; min-width: 0; }
+.report-cards { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin: 20px 0; }
+.report-cards article { padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: #fff; min-width: 0; }
+.report-cards strong, .report-cards small { display: block; overflow-wrap: anywhere; }
+.report-cards strong { font-size: 24px; margin-top: 8px; }
+.sales-report p { color: var(--muted); line-height: 1.7; }
+.report-table { max-width: 100%; overflow-x: auto; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 12px; background: white; }
+.report-table table { width: 100%; border-collapse: collapse; }
+.report-table th, .report-table td { padding: 14px; text-align: left; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.report-table td small { display: block; color: var(--muted); }
+.archived-list { display: grid; gap: 12px; }
+.archived-list article { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 18px; background: white; border: 1px solid var(--line); border-radius: 12px; }
+.archived-list article div { min-width: 0; overflow-wrap: anywhere; }
+.archived-list small { display: block; color: var(--muted); }
+@media(max-width:1100px) { .admin-product-row .archive-product-btn { grid-column: 3; grid-row: 2; } }
+@media(max-width:600px) { .report-cards { grid-template-columns: repeat(2,minmax(0,1fr)); } .report-cards article { padding: 12px; } .report-cards strong { font-size: 19px; } .report-filters label { flex: 1 1 130px; } .archived-list article { flex-wrap: wrap; } .admin-product-row .archive-product-btn { grid-column: 2 / -1; grid-row: 4; justify-self: start; } }

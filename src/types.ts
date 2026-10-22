@@ -5,6 +5,7 @@ export type Category = {
 };
 
 export type Product = {
+  is_archived?: boolean;
   id: number;
   product_code?: string | null;
   brand_id?: number | null;
@@ -32,7 +33,9 @@ export type AdminSection =
   | "marketing"
   | "promotion"
   | "categories"
-  | "brands";
+  | "brands"
+  | "reports"
+  | "archive";
 
 export type OrderItem = {
   id?: string;
@@ -57,6 +60,7 @@ export type PaymentMethod = "cash" | "transfer" | "qris" | "debit" | "piutang";
 export type PaymentStatus = "lunas" | "dp" | "belum_bayar" | "piutang";
 
 export type StoreOrder = {
+  completedAt?: string | null;
   id: string;
   databaseId?: string;
   storeName: string;

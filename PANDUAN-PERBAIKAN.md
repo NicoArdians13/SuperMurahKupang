@@ -1,3 +1,55 @@
+# Laporan penjualan dan Arsip barang
+
+## Pemasangan
+
+Versi ini dibuat dari Website-Marketing-Ubah-Massal.zip. Pertahankan `.env` proyekmu. Jalankan `SQL-LAPORAN-ARSIP.sql` di SQL Editor Supabase yang sama sebelum menggunakan fitur baru. SQL menambah `products.is_archived` dan `orders.completed_at`, indeks serta pembatas akses baca produk arsip. Data dan relasi lama, bucket gambar, serta kebijakan izin lama tidak dihapus. Tidak perlu menjalankan ulang SQL merk/artikel yang sebelumnya sudah berhasil.
+
+File berubah: `src/App.tsx`, `src/types.ts`, `src/styles.css`. File baru: `src/components/SalesReportTab.tsx`, `src/components/ArchivedProductsTab.tsx`, `src/lib/salesReport.ts`, dan `SQL-LAPORAN-ARSIP.sql`.
+
+## Laporan penjualan
+
+- Menu baru Laporan penjualan berisi pesanan selesai, nilai penjualan, unit terjual, jumlah pelanggan, nilai pesanan lunas dan belum lunas, produk terlaris, serta pelanggan paling sering belanja.
+- Pilih rentang tanggal pesanan atau Semua periode. Awalnya menampilkan bulan berjalan. Muat ulang laporan membaca Supabase kembali.
+- Pada Pesanan toko, klik Tandai selesai untuk memasukkan pesanan ke laporan. Buka kembali mengeluarkannya dari laporan tanpa menghapus pesanan. Status pengantaran tetap terpisah. SQL tidak otomatis menandai pesanan lama selesai.
+- Semua hitungan memakai snapshot QTY × harga satuan pada nota, termasuk harga manual, bukan harga katalog saat ini. Edit pesanan selesai tetap mempertahankan penanda selesai.
+- Nilai penjualan bukan laba maupun kas masuk. Nilai belum lunas mencakup seluruh nilai pesanan DP/piutang karena nominal pembayaran tidak dicatat.
+- Produk dikelompokkan dengan ID, atau kode/nama jika ID tidak tersedia. Pelanggan dikelompokkan dengan ID, atau nama jika belum terhubung master pelanggan. Nama sama tanpa ID dapat tergabung.
+- Pemuatan orders dan order_items memakai pagination agar lebih dari 1000 baris tetap dihitung. Jika pemuatan gagal, laporan menampilkan kesalahan alih-alih total dari data yang tidak lengkap.
+
+## Arsip barang
+
+- Klik Arsipkan pada baris Katalog produk atau di editor. Konfirmasi sebelum menyimpan.
+- Barang tidak tampil di Home, katalog, hasil pencarian, atau pilihan barang pesanan baru. Isi pesanan lama tetap tersedia untuk edit dan nota.
+- Buka Arsip barang untuk mencari dan memulihkan. Barang pulih kembali ke katalog dengan kategori, merk, harga dan gambar yang sama.
+- Tidak ada penghapusan produk atau file gambar. Relasi order_items ke produk tetap ada. Impor Excel tetap hanya memperbarui harga barang lama, termasuk barang yang diarsipkan, tanpa mengaktifkannya kembali.
+- SQL menambah SELECT policy RESTRICTIVE: pengunjung hanya membaca produk aktif; admin yang terdaftar di admin_users tetap dapat membaca arsip. Policy izin baca/tulis lama tetap diperlukan dan tidak ditimpa.
+
+## Validasi
+
+Build TypeScript/Vite berhasil. Pengujian browser memakai API simulasi pada lebar 1440, 768, 390 dan 320 px mencakup filter tanggal, perhitungan harga manual, peringkat, penandaan selesai/buka kembali, arsip/pemulihan, kegagalan penyimpanan, katalog publik, pilihan pesanan baru dan nota lama. Pengujian terpisah 1001 pesanan dan 1001 baris barang juga lolos. Regresi harga pesanan dan impor ulang Excel lolos pada desktop dan ponsel.
+
+SQL dan RLS belum dieksekusi pada Supabase asli selama pengerjaan ini; jalankan file SQL yang disertakan pada proyekmu. Tidak ada data produksi yang diubah selama pengujian.
+
+---
+
+# Ubah kategori dan merk secara massal
+
+Update ini memakai kode versi Import-Harga-Aman. Ganti `src/App.tsx`, `src/styles.css`, dan tambahkan `src/components/BulkProductActions.tsx`. Pertahankan `.env` milikmu. Tidak perlu SQL baru jika fitur merk sebelumnya sudah aktif.
+
+1. Buka Admin → Katalog produk.
+2. Centang Pilih barang pada beberapa baris, atau klik Pilih semua hasil pencarian.
+3. Pilih Kategori tujuan dan/atau Merk tujuan. Pertahankan kategori/merk berarti kolom tersebut tidak diubah. Tanpa merk melepas hubungan merk tanpa menghapus barang atau daftar merk.
+4. Klik Terapkan ke barang terpilih dan periksa jumlah serta tujuan pada konfirmasi.
+5. Tunggu status selesai. Barang yang gagal atau tidak diizinkan tersimpan tetap dipilih untuk dicoba lagi.
+
+Pilihan barang tetap ada saat pencarian berubah. Jumlah yang berada di luar hasil pencarian ditampilkan dan disebutkan pada konfirmasi. Batal pilih semua membersihkan pilihan.
+
+Hanya kategori/merk yang dikirim ke Supabase. Harga, gambar, nama, kode, dan deskripsi tidak ditimpa. Permintaan dibagi maksimal 100 barang per batch. Setiap batch memeriksa ID yang dikembalikan database; hasil dapat berhasil sebagian, bukan transaksi menyeluruh. Tidak ada penghapusan atau migrasi storage. Perbaikan impor Excel yang menjaga kategori dan merk tetap disertakan.
+
+Validasi update massal: build berhasil; pengujian browser dengan API simulasi lolos pada lebar 1440, 768, 390, dan 320 px. Skenario meliputi konfirmasi batal, pilihan di luar pencarian, hasil sebagian dan coba lagi, melepas merk, metadata/harga tetap, serta muat ulang. Pengujian desktop juga mencakup 206 barang dengan batch 100/100/6. Supabase asli tidak diubah selama pengujian.
+
+---
+
 # Import Excel: harga diperbarui, kategori dan merk tetap
 
 Untuk update ini ganti `src/components/ExcelImportModal.tsx` dan `src/App.tsx` dari ZIP. Tidak perlu SQL baru. Pertahankan `.env` dan konfigurasi Supabase milikmu.
